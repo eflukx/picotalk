@@ -80,21 +80,108 @@ flowchart LR
 
 ## Wiring
 
-You need an RS-422/485 transceiver that works at 3.3 V (see TashTalk's
-[transceivers.md](https://github.com/lampmerchant/tashtalk/blob/main/documentation/transceivers.md))
-and the usual LocalTalk/PhoneNet connection on its A/B side.
+### Pico pins
 
-| Pico GPIO | Connect to                                         |
-|-----------|----------------------------------------------------|
-| GP6       | transceiver RO (receive out)                       |
-| GP7       | transceiver DI (driver in)                         |
-| GP8       | transceiver DE **and** /RE (tied together)         |
-| GP0       | host RX (UART mode)                                |
-| GP1       | host TX (UART mode)                                |
-| GP3       | host CTS: low means the host may send (UART mode)  |
-| GP2       | host RTS, optional; pulled low internally          |
+| Pico GPIO | Function                                            |
+|-----------|-----------------------------------------------------|
+| GP6       | LocalTalk RX: from transceiver receiver output      |
+| GP7       | LocalTalk TX: to transceiver driver input           |
+| GP8       | Driver enable: high while transmitting              |
+| GP0       | UART TX → host RX (`host-uart` mode)                |
+| GP1       | UART RX ← host TX (`host-uart` mode)                |
+| GP3       | UART RTS → host CTS: low = host may send            |
+| GP2       | UART CTS ← host RTS, optional (pulled low)          |
 
-The UART runs at 1 Mbaud 8N1, like TashTalk.
+The UART runs at 1 Mbaud 8N1, like TashTalk. In `ltoudp` mode only GP6–GP8 are used.
+
+### Choosing a transceiver
+
+LocalTalk is RS-422-style differential signalling. Any transceiver you use must:
+
+* run on **3.3 V** (the Pico's GPIOs are not 5 V tolerant);
+* have a **fail-safe receiver**, which outputs a steady level when nobody drives
+  the pair. The Mac tri-states its transmitter between frames. This is why not
+  every RS-485 part works (see TashTalk's
+  [transceivers.md](https://github.com/lampmerchant/tashtalk/blob/main/documentation/transceivers.md));
+* be rated for **≥ 500 kbit/s**. LocalTalk runs at 230.4 kbit/s, so
+  "250 kbit/s slew-limited" parts are too close.
+
+### Option A: direct connection to one Mac (no LocalTalk box)
+
+The Mac's mini-DIN-8 port has separate transmit and receive pairs. For a
+single Mac you can wire them straight to the Pico with no transformer box, as
+[AirTalk](https://github.com/cheesestraws/airtalk) does. Mac port pins:
+
+| Mac pin | Signal | Direction           |
+|---------|--------|---------------------|
+| 3       | TxD−   | Mac → Pico          |
+| 6       | TxD+   | Mac → Pico          |
+| 5       | RxD−   | Pico → Mac          |
+| 8       | RxD+   | Pico → Mac          |
+| 4       | GND    | connect to Pico GND |
+
+These are the pins **on the Mac**. If you put a mini-DIN-8 socket on your
+board, either wire it with these numbers and use a straight-through cable, or
+wire it "like a Mac" (TxD↔RxD swapped) and use a Mac-to-printer crossover cable,
+as AirTalk does.
+
+#### A1 (recommended): one full-duplex TI THVD2442
+
+A single chip covers both directions. It has built-in ±16 kV ESD and ±70 V
+bus-fault protection, and idle-bus fail-safe, so no external protection parts
+are needed. Use the 20 Mbit/s **THVD2442**, not the 250 kbit/s THVD2412. The
+package is a 3 × 3 mm VSON-10; assembly services handle it easily, hand
+soldering is harder.
+
+| THVD2442 pin | Connect to                            |
+|--------------|---------------------------------------|
+| 1 R          | GP6                                   |
+| 2 /RE        | GND (receiver always on)              |
+| 3 DE         | GP8                                   |
+| 4 D          | GP7                                   |
+| 5 GND        | GND                                   |
+| 6 Y          | Mac RxD+ (pin 8)                      |
+| 7 Z          | Mac RxD− (pin 5)                      |
+| 8 B          | Mac TxD− (pin 3)                      |
+| 9 A          | Mac TxD+ (pin 6)                      |
+| 10 VCC       | 3V3, 0.1–1 µF to GND                  |
+| thermal pad  | GND                                   |
+
+#### A2: two half-duplex transceivers (e.g. GM3085E, SOIC-8)
+
+This is AirTalk's proven design: one chip only drives, the other only receives.
+
+| Pin     | U1: driver (Pico → Mac)   | U2: receiver (Mac → Pico) |
+|---------|---------------------------|---------------------------|
+| RO      | not connected             | GP6                       |
+| /RE     | 3V3 (receiver off)        | GND (receiver always on)  |
+| DE      | GP8                       | GND (driver off)          |
+| DI      | GP7                       | GND                       |
+| A / B   | Mac RxD+ (8) / RxD− (5)   | Mac TxD+ (6) / TxD− (3)   |
+| VCC     | 3V3, 1 µF to GND          | 3V3, 1 µF to GND          |
+
+For protection, copy AirTalk's line filtering: 2 × 25 Ω in series on each
+line, 200 pF to GND, and an SM712 TVS per pair. See sheet 3 of its schematic.
+
+### Option B: on a LocalTalk network (several Macs, printers, IIgs, …)
+
+To join an existing LocalTalk/PhoneNet network, connect through a LocalTalk
+or PhoneNet box like any other node. Use the **same wiring as Option A**
+(A1 or A2), with the box plugged in where the Mac would be. The box expects a
+Mac on its plug, so the Pico simply behaves like one. Terminate the network at
+both ends as usual.
+
+Inside the box the transmit and receive pairs share one bus pair, so the Pico
+hears its own transmissions. The firmware ignores the receiver while it is
+transmitting, so that is expected.
+
+### Bring-up tips
+
+* **If the Mac never answers, swap the + and − wires of one pair.** Vendors
+  disagree about which of A/B is "+". FM0 itself doesn't care about polarity,
+  but the idle level does.
+* A logic analyser on GP6/GP7/GP8 is the quickest way to see what's going on.
+  The RTS → CTS turnaround must stay within 200 µs.
 
 ## Building
 
