@@ -110,15 +110,24 @@ LocalTalk is RS-422-style differential signalling. Any transceiver you use must:
 
 The Mac's mini-DIN-8 port has separate transmit and receive pairs. For a
 single Mac you can wire them straight to the Pico with no transformer box, as
-[AirTalk](https://github.com/cheesestraws/airtalk) does. Mac port pins:
+[AirTalk](https://github.com/cheesestraws/airtalk) does.
 
-| Mac pin | Signal | Direction           |
-|---------|--------|---------------------|
-| 3       | TxD−   | Mac → Pico          |
-| 6       | TxD+   | Mac → Pico          |
-| 5       | RxD−   | Pico → Mac          |
-| 8       | RxD+   | Pico → Mac          |
-| 4       | GND    | connect to Pico GND |
+![Mac mini-DIN-8 serial port pinout](docs/mac-serial-port.svg)
+
+| Pin | Name     | Dir (Mac) | Description                       | picotalk            |
+|-----|----------|-----------|-----------------------------------|---------------------|
+| 1   | HSKo     | out       | Output handshake                  | not used            |
+| 2   | HSKi/CLK | in        | Input handshake or external clock | not used            |
+| 3   | TxD−     | out       | Transmit data (−)                 | Mac → Pico          |
+| 4   | GND      | –         | Ground                            | connect to Pico GND |
+| 5   | RxD−     | in        | Receive data (−)                  | Pico → Mac          |
+| 6   | TxD+     | out       | Transmit data (+)                 | Mac → Pico          |
+| 7   | GPi      | in        | General purpose input             | not used            |
+| 8   | RxD+     | in        | Receive data (+)                  | Pico → Mac          |
+
+Both ports (Printer and Modem) have this pinout, on every Mac from the Plus
+onwards and on the Apple IIgs. The 128K and 512K use a DB-9 with a different
+layout. Pinout per [allpinouts.org](https://allpinouts.org/pinouts/connectors/serial/apple-macintosh-rs-422-serial/).
 
 These are the pins **on the Mac**. If you put a mini-DIN-8 socket on your
 board, either wire it with these numbers and use a straight-through cable, or
