@@ -7,7 +7,8 @@
  *
  * Type a page number, or click one; Cmd-1 to Cmd-4 (and Shift-1 to
  * Shift-4, i.e. ! @ # $) are the red, green, yellow and blue keys, which
- * a click on the bottom page row gives too.
+ * a click on the bottom page row gives too. W, A, S and D are the arrow
+ * keys: A and D previous and next page, W and S up and down.
  */
 #include <string.h>
 
@@ -315,6 +316,19 @@ static void net_close(void)
 
 static const char colour_keys[] = "!@#$";
 
+/* WASD as arrow keys (1E up, 1C left, 1F down, 1D right), for keyboards
+ * without them; the server turns those into the terminal's arrow keys. */
+static char wasd(char k)
+{
+    switch (k) {
+    case 'w': case 'W': return 0x1E;
+    case 'a': case 'A': return 0x1C;
+    case 's': case 'S': return 0x1F;
+    case 'd': case 'D': return 0x1D;
+    default: return k;
+    }
+}
+
 /* A click: the bottom page row holds the colour keys' destinations, one
  * per quarter; elsewhere a click on a three-digit page number opens it. */
 static void click(Point pt)
@@ -396,8 +410,10 @@ int main(void)
                 break;
             else if (e.key == '\r' || e.key == 3)
                 add_keys("\r", 1);
-            else
-                add_keys(&e.key, 1);
+            else {
+                char k = wasd(e.key);
+                add_keys(&k, 1);
+            }
             break;
         case TW_CLICK:
             click(e.where);

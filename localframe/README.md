@@ -319,7 +319,10 @@ The **Teletekst** app finds the server by itself and shows page 100. Type a
 page number, or click one on the page. The four coloured keys (red, green,
 yellow, blue) jump to the pages named in the bottom row of the page: press
 ⌘1–⌘4 (or Shift-1–4), or click that row, one quarter per key. Other keys
-go to the service as typed; `?` shows its help.
+go to the service as typed; `?` shows its help. W, A, S and D work as the
+arrow keys (the original Macintosh keyboard has none): A and D go to the
+previous and next page; W and S send up and down, which the service uses
+for subpages.
 
 Behind it, `lftest serve` runs `ssh teletekst.nl` in a 40×26 terminal for
 each Mac (a page is 25 rows; the service adds a status line) and keeps the
