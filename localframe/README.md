@@ -251,8 +251,9 @@ window to mount it.
 3. Put the PC on the same Wi-Fi network or LAN as the Pico.
 4. On the Mac, set AppleTalk Active in the Chooser and run LFTest.
 
-Keep `--rate` at or below its default of 20000 bytes/s. LocalTalk carries at
-most 28.8 KB/s, and the bridge has only a small queue.
+Keep `--rate` at its default of 30000 bytes/s or lower (see
+[Pacing](#pacing)): the bridge has only a small queue. If bulk tests lose
+packets through the bridge, try 20000.
 
 ## Using lftest
 
@@ -298,7 +299,9 @@ remote desktop design needs.
 
 **Chat** joins the hub with the Chooser's user name as nickname. Type in
 the line at the bottom of the window and press Return; typing always goes
-there, whichever window is in front. If the hub goes away, the chat keeps
+there, whichever window is in front. Up and Down arrow step through the
+lines you sent before (the last 16); on keyboards without arrow keys, such
+as the original Macintosh keyboard, use ⌘P and ⌘N. If the hub goes away, the chat keeps
 looking for it and rejoins when it is back. ⌘Q quits and tells the hub you
 left.
 
@@ -348,8 +351,30 @@ All `lftest` subcommands take these options:
 |---|---|---|
 | `--name NAME` | host name | server name (`serve`) or chat nickname (`chat`) |
 | `--node N` | from NAME (`serve`), random (clients) | LLAP node ID to try first: 128–254 for `serve`, 1–127 for `ping` and `chat` |
-| `--rate BPS` | 20000 | pace outgoing frames to BPS bytes/s; 0 sends at once (fine for emulators, not for a bridge) |
+| `--rate BPS` | 30000 | pace outgoing frames to BPS bytes/s. Not much above LocalTalk's 28800, and not 0 (unpaced): see [Pacing](#pacing) |
 | `--iface IP` | OS choice | address of the interface to use for multicast |
+
+## Pacing
+
+A PC can send the 8 packets of an ATP response in microseconds; LocalTalk
+needs about 21 ms for each. Frames that arrive faster queue up in the
+emulator or the bridge. Once that queue is full they are lost, and ATP only
+notices after a 2-second timeout. So sending too fast makes transfers
+**slower**. Measured bulk throughput in Snow, Mac Plus at 1× speed:
+
+| `--rate` | Bulk throughput |
+|---|---|
+| 15000 | 10.5 KB/s |
+| 28000 | 18.4 KB/s |
+| 38000 | 18.4 KB/s (identical: Snow buffered the burst) |
+| 100000 | 2.7 KB/s (Snow's buffer overflowed) |
+
+18.4 KB/s is the ceiling with one transaction at a time: each one takes
+252 ms, of which about 167 ms is 8 packets on the (emulated) wire and about
+85 ms is turnaround (request, release, the Mac's processing). Two
+transactions in flight could hide the turnaround. The default, 30000, is
+just above wire speed: the link runs flat out, and bursts queue only
+slightly.
 
 ## Protocols and numbers
 

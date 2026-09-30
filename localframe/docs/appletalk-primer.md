@@ -213,8 +213,10 @@ What changes compared to a real cable:
   frame onto the cable only if it is a broadcast or for a node recently heard
   there, so a busy LAN does not swamp the 230.4 kbit/s wire.
 * **Speed mismatch.** A PC can send 8 × 578 bytes in microseconds; LocalTalk
-  needs about 0.2 seconds for them. Our tools pace outgoing frames (`--rate`,
-  20,000 bytes/s by default) so the bridge's queue never overflows.
+  needs about 0.2 seconds for them. Our tools pace outgoing frames to about
+  wire speed (`--rate`, 30,000 bytes/s by default) so queues never overflow.
+  Sending faster makes things slower: overflowing frames are lost and cost
+  a 2-second ATP retry each.
 * **Loss is still possible** (Wi-Fi, full queues). ATP retries cover it.
 * **Multicast stays on the local network.** For remote networks, routers
   such as TashRouter bridge LToUDP to EtherTalk or tunnel it further.

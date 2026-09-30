@@ -31,7 +31,17 @@ impl Config {
         let bad = |e: &dyn std::fmt::Display| format!("{arg}: {e}");
         match arg {
             "--node" => self.node = Some(val()?.parse().map_err(|e| bad(&e))?),
-            "--rate" => self.rate = val()?.parse().map_err(|e| bad(&e))?,
+            "--rate" => {
+                self.rate = val()?.parse().map_err(|e| bad(&e))?;
+                if self.rate == 0 || self.rate > MAX_USEFUL_RATE {
+                    eprintln!(
+                        "warning: --rate {} is well above LocalTalk's {WIRE_RATE} bytes/s. It gains nothing, \
+                         and once the receiving queue fills, frames are lost and each loss costs a \
+                         2-second ATP retry: throughput goes down, not up.",
+                        self.rate
+                    );
+                }
+            }
             "--iface" => self.iface = val()?.parse().map_err(|e| bad(&e))?,
             _ => return Ok(false),
         }
@@ -43,13 +53,26 @@ impl Config {
 pub const OPTIONS_HELP: &str = "\
   --node N        LLAP node to try first (default: random; servers 128-254,
                   workstations 1-127)
-  --rate BPS      pace outgoing frames to BPS bytes/s, 0 = unpaced (default 20000)
+  --rate BPS      pace outgoing frames to BPS bytes/s (default 30000); much
+                  above LocalTalk's 28800, or 0 (unpaced), gains nothing and
+                  risks lost frames
   --iface IP      address of the network interface for LToUDP multicast
                   (default: chosen by the OS)";
 
-/// A little below LocalTalk's 28.8 KB/s, so a picotalk bridge never has
-/// to queue much.
-pub const DEFAULT_RATE: u32 = 20_000;
+/// LocalTalk's raw speed: 230.4 kbit/s. Sending faster gains nothing:
+/// frames queue up (Snow emulates the serial chip at this rate and buffers
+/// a few), and once a queue is full they are lost, each loss costing an
+/// ATP retry timeout.
+pub const WIRE_RATE: u32 = 28_800;
+
+/// Just above [`WIRE_RATE`]: the link runs flat out, and a burst queues by
+/// only a few percent. Measured in Snow (Mac Plus at 1×): 15000 gives
+/// 10.5 KB/s of bulk data, 28000 and 38000 both give 18.4 KB/s, 100000
+/// collapses to 2.7 KB/s.
+pub const DEFAULT_RATE: u32 = 30_000;
+
+/// Above this `--rate` warns: Snow already lost frames at 100000.
+const MAX_USEFUL_RATE: u32 = 40_000;
 
 pub struct Node {
     link: LtoUdp,

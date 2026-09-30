@@ -13,6 +13,13 @@ enum { ITEM_ABOUT = 1, ITEM_QUIT = 1 };
 #define MAXCOLS 120
 #define BUTTON_H 20
 #define STRIP_H (BUTTON_H + 10) /* button row, with margins */
+#define HISTORY 16 /* entered lines kept for Up/Down arrow */
+
+/* Arrow keys as characters, and as key codes (ADB keyboards; Mac Plus
+ * keyboard), in case the keyboard layout maps them to something else. */
+enum { CHAR_UP = 0x1E, CHAR_DOWN = 0x1F };
+enum { ADB_UP = 0x7E, ADB_DOWN = 0x7D, PLUS_UP = 0x4D, PLUS_DOWN = 0x48 };
+enum { KEY_UP = -1, KEY_DOWN = -2 }; /* what key() gets for them */
 
 struct TextWin {
     WindowPtr win;
@@ -23,6 +30,12 @@ struct TextWin {
     short cols, rows;
     char input[TW_MAX_INPUT + 1];
     short inputLen;
+    /* Entered lines, oldest first; history[histPos] is shown while
+     * browsing, histPos == histCount means the line being typed, which is
+     * kept in draft meanwhile. */
+    char history[HISTORY][TW_MAX_INPUT + 1];
+    short histCount, histPos;
+    char draft[TW_MAX_INPUT + 1];
     ControlHandle buttons[MAX_BUTTONS];
     Boolean enabled[MAX_BUTTONS];
     short nbuttons;
@@ -294,7 +307,24 @@ static Boolean menu(long choice)
     return quit;
 }
 
-static const char *key(TextWin *t, char c)
+static void set_input(TextWin *t, const char *s)
+{
+    t->inputLen = (short)strlen(s);
+    memcpy(t->input, s, t->inputLen);
+}
+
+static void remember(TextWin *t, const char *line)
+{
+    if (t->histCount > 0 && strcmp(t->history[t->histCount - 1], line) == 0)
+        return; /* no repeats */
+    if (t->histCount == HISTORY) {
+        memmove(t->history[0], t->history[1], (HISTORY - 1) * sizeof t->history[0]);
+        t->histCount--;
+    }
+    strcpy(t->history[t->histCount++], line);
+}
+
+static const char *key(TextWin *t, short c)
 {
     GrafPtr old;
     const char *line = NULL;
@@ -307,12 +337,27 @@ static const char *key(TextWin *t, char c)
         memcpy(submitted, t->input, t->inputLen);
         submitted[t->inputLen] = 0;
         t->inputLen = 0;
+        remember(t, submitted);
+        t->histPos = t->histCount;
         line = submitted;
+    } else if (c == KEY_UP) {
+        if (t->histPos == 0)
+            return NULL;
+        if (t->histPos == t->histCount) {
+            t->input[t->inputLen] = 0;
+            strcpy(t->draft, t->input);
+        }
+        set_input(t, t->history[--t->histPos]);
+    } else if (c == KEY_DOWN) {
+        if (t->histPos == t->histCount)
+            return NULL;
+        t->histPos++;
+        set_input(t, t->histPos == t->histCount ? t->draft : t->history[t->histPos]);
     } else if (c == 8) {
         if (t->inputLen > 0)
             t->inputLen--;
-    } else if ((unsigned char)c >= ' ' && c != 0x7F && t->inputLen < TW_MAX_INPUT) {
-        t->input[t->inputLen++] = c;
+    } else if (c >= ' ' && c < 256 && c != 0x7F && t->inputLen < TW_MAX_INPUT) {
+        t->input[t->inputLen++] = (char)c;
     } else {
         return NULL;
     }
@@ -340,12 +385,25 @@ Boolean tw_poll(TWEvent *e)
         char c = (char)(ev.message & charCodeMask);
         if (c == 0x1B || (c == '.' && (ev.modifiers & cmdKey))) {
             e->kind = TW_CANCEL;
+        } else if ((ev.modifiers & cmdKey) && (c == 'p' || c == 'P' || c == 'n' || c == 'N')) {
+            /* History for keyboards without arrow keys (the original
+             * Macintosh keyboard): Cmd-P previous, Cmd-N next. */
+            e->win = input_win();
+            key(e->win, c == 'p' || c == 'P' ? KEY_UP : KEY_DOWN);
         } else if (ev.modifiers & cmdKey) {
             if (menu(MenuKey(c)))
                 e->kind = TW_QUIT;
         } else {
+            unsigned char code = (unsigned char)((ev.message & keyCodeMask) >> 8);
+            short k = (unsigned char)c;
+            /* A key that types a character is never an arrow. */
+            Boolean printable = k >= ' ' && k != 0x7F;
+            if (c == CHAR_UP || (!printable && (code == ADB_UP || code == PLUS_UP)))
+                k = KEY_UP;
+            else if (c == CHAR_DOWN || (!printable && (code == ADB_DOWN || code == PLUS_DOWN)))
+                k = KEY_DOWN;
             e->win = input_win();
-            e->line = key(e->win, c);
+            e->line = key(e->win, k);
             if (e->line)
                 e->kind = TW_LINE;
         }
