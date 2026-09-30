@@ -212,6 +212,16 @@ WIFI_SSID=myssid WIFI_PASSWORD=secret \
 # picotool load -u -v -x -t elf target/thumbv8m.main-none-eabihf/release/picotalk
 ```
 
+## More documentation
+
+* [docs/overview.md](docs/overview.md): background, what TashTalk does, design
+  decisions, hardware notes, status and next steps.
+* [localframe/](localframe/README.md): LocalFrame, a remote desktop for
+  classic Macs over LocalTalk. So far: a PC AppleTalk stack, test tools
+  (echo, chat) with Mac clients, an
+  [AppleTalk primer](localframe/docs/appletalk-primer.md) and the
+  [remote desktop design](localframe/docs/remote-desktop-protocol.md).
+
 ## Known gaps / next steps
 
 * Hardware bring-up: check the TX waveform and RX decode with a logic analyser,

@@ -1,0 +1,10 @@
+[package]
+name = "appletalk"
+description = "Minimal AppleTalk node (LLAP addressing, DDP, NBP, ATP) over LToUDP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+llap = { path = "../../../llap" }
+socket2 = { version = "0.6", features = ["all"] }

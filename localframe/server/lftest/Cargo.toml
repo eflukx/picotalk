@@ -1,0 +1,9 @@
+[package]
+name = "lftest"
+description = "AppleTalk echo server and ping tool for testing the LocalTalk chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+appletalk = { path = "../appletalk" }
