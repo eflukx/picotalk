@@ -1,9 +1,10 @@
 [package]
 name = "lftest"
-description = "AppleTalk echo server and ping tool for testing the LocalTalk chain"
+description = "LocalFrame test server (echo + chat hub) and PC-side test clients"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 appletalk = { path = "../appletalk" }
+encoding_rs = "0.8"

@@ -212,8 +212,8 @@ u8   nevents
   request is outstanding, the client sends it at once in a plain DDP datagram
   with the same layout (`type` 3 = INPUT). Note: sending raw DDP from the Mac
   needs a DDP socket, and opening one requires a socket listener written in
-  assembly. A second, small ATP request is the simpler alternative; RChat
-  already runs two ATP requests side by side this way.
+  assembly. A second, small ATP request is the simpler alternative; LFTest
+  already runs several ATP requests side by side this way.
 * Events are repeated in following requests until the server's `event_ack`
   covers them. The server drops duplicates by `event_seq`. Mouse
   position needs no retry: the next packet supersedes it.
@@ -389,9 +389,10 @@ Done before phase 0, to prove the toolchain and the network chain:
 * **AppleTalk stack for the PC** (`server/appletalk`): LLAP node acquisition,
   DDP, NBP (answering and looking up), ATP responder with the exactly-once
   cache and ATP requester, LToUDP transport with pacing.
-* **Test programs with Mac clients**: `lftest echo` / ATPing (lookup, ATP,
-  8-packet responses, throughput) and `rchat` / RChat (the long-poll pull
-  model with asynchronous ATP on the Mac). See the [README](../README.md).
+* **Test program with a Mac client**: `lftest serve` / LFTest, with echo
+  tests (lookup, ATP, 8-packet responses, throughput) and a chat (the
+  long-poll pull model with asynchronous ATP on the Mac). See the
+  [README](../README.md).
 
 Still to do:
 

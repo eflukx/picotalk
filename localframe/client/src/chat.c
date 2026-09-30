@@ -1,17 +1,13 @@
 /*
- * RChat: chat with a PC (and other Macs) over AppleTalk.
- *
- * Finds an RChat hub (`rchat` on a PC) with NBP and speaks the protocol in
- * localframe/server/rchat/src/proto.rs:
+ * The chat protocol, described in localframe/server/lftest/src/chat.rs:
  *   JOIN once, then always one POLL outstanding (the hub holds it until a
  *   message arrives), and a SAY for every line typed.
- * The ATP requests are asynchronous, so typing never waits for the
- * network. The nickname is the Chooser's user name.
  */
+#include "chat.h"
+
 #include <string.h>
 
 #include "appletalk.h"
-#include "textwin.h"
 
 #define HUB_TYPE "RChat"
 enum { CMD_JOIN = 1, CMD_SAY = 2, CMD_POLL = 3, CMD_LEAVE = 4 };
@@ -20,11 +16,13 @@ enum { CMD_JOIN = 1, CMD_SAY = 2, CMD_POLL = 3, CMD_LEAVE = 4 };
 #define MAX_NICK 31
 #define POLL_TIMEOUT 4 /* s; the hub holds a POLL for 2 s */
 
-enum { NET_OFF = -1, NET_LOOKUP, NET_JOINING, NET_JOINED };
+enum { NET_LOOKUP, NET_FINDING, NET_JOINING, NET_JOINED };
 
+static TextWin *win;
 static short state = NET_LOOKUP;
 static long nextLookup;
 static Boolean warnedNoHub;
+static NBPLookup look;
 static ATAddr hub;
 static unsigned char nick[MAX_NICK + 1]; /* Pascal string */
 static unsigned short after;
@@ -42,16 +40,16 @@ static short outHead, outCount;
 static void show_message(const unsigned char *nk, const unsigned char *text)
 {
     if (nk[0] == 1 && nk[1] == '*')
-        tw_printf("* %.*s", text[0], (const char *)text + 1);
+        tw_printf(win, "* %.*s", text[0], (const char *)text + 1);
     else
-        tw_printf("<%.*s> %.*s", nk[0], (const char *)nk + 1, text[0], (const char *)text + 1);
+        tw_printf(win, "<%.*s> %.*s", nk[0], (const char *)nk + 1, text[0], (const char *)text + 1);
 }
 
 static void lost(const char *why)
 {
     if (state == NET_LOOKUP)
         return;
-    tw_printf("* %s", why);
+    tw_printf(win, "* %s", why);
     state = NET_LOOKUP;
     nextLookup = TickCount() + 60;
 }
@@ -85,23 +83,31 @@ static void start_say(void)
     sayBusy = at_request(&sayR, hub, sayReq, 2 + n, 0, sayBuf, 1, 2, true) == noErr;
 }
 
-static void lookup(void)
+static void start_lookup(void)
 {
-    NBPResult found[1];
-    short n = 0;
-
     if (!warnedNoHub)
-        tw_print("* Looking for an RChat hub...");
-    if (at_lookup("=", HUB_TYPE, found, 1, &n) != noErr || n == 0) {
+        tw_print(win, "* Looking for a chat hub...");
+    if (at_lookup_start(&look, "=", HUB_TYPE, 1, true) == noErr)
+        state = NET_FINDING;
+    else
+        nextLookup = TickCount() + 5 * 60;
+}
+
+static void on_lookup(void)
+{
+    NBPResult found;
+
+    if (at_lookup_results(&look, &found, 1) == 0) {
         if (!warnedNoHub)
-            tw_print("* No hub found yet; still looking. Is `rchat` running on the PC?");
+            tw_print(win, "* No hub found yet; still looking. Is `lftest serve` running on the PC?");
         warnedNoHub = true;
+        state = NET_LOOKUP;
         nextLookup = TickCount() + 5 * 60;
         return;
     }
     warnedNoHub = false;
-    hub = found[0].addr;
-    tw_printf("* Found hub %.*s at node %u; joining as %.*s", found[0].object[0], (const char *)found[0].object + 1,
+    hub = found.addr;
+    tw_printf(win, "* Found hub %.*s at node %u; joining as %.*s", found.object[0], (const char *)found.object + 1,
               hub.node, nick[0], (const char *)nick + 1);
     start_join();
 }
@@ -152,7 +158,7 @@ static void on_say(void)
     }
 }
 
-static void net_idle(void)
+void chat_idle(void)
 {
     if (joinBusy && at_done(&joinR)) {
         joinBusy = false;
@@ -166,17 +172,31 @@ static void net_idle(void)
         sayBusy = false;
         on_say();
     }
+    if (state == NET_FINDING && at_lookup_done(&look))
+        on_lookup();
     if (state == NET_LOOKUP && !joinBusy && !pollBusy && !sayBusy && TickCount() >= nextLookup)
-        lookup();
+        start_lookup();
     if (state == NET_JOINED && !pollBusy)
         start_poll();
     if (state == NET_JOINED && !sayBusy && outCount > 0)
         start_say();
 }
 
-/* Say goodbye, and make sure the driver no longer writes into our buffers
- * once we are gone. */
-static void net_close(void)
+void chat_line(const char *line)
+{
+    char *slot = outbox[(outHead + outCount) % OUTBOX];
+    if (outCount == OUTBOX) {
+        SysBeep(10);
+        return;
+    }
+    strncpy(slot, line, MAX_TEXT);
+    slot[MAX_TEXT] = 0;
+    outCount++;
+    if (state != NET_JOINED)
+        tw_print(win, "* (not connected; will send when connected)");
+}
+
+void chat_close(void)
 {
     static ATPRequest leaveR;
     static unsigned char leaveReq[2] = {CMD_LEAVE, 0};
@@ -191,35 +211,17 @@ static void net_close(void)
         at_cancel(&pollR);
     if (sayBusy)
         at_cancel(&sayR);
-    while ((joinBusy && !at_done(&joinR)) || (pollBusy && !at_done(&pollR)) || (sayBusy && !at_done(&sayR))) {
-        if (TickCount() > give_up)
-            break;
+    while (((joinBusy && !at_done(&joinR)) || (pollBusy && !at_done(&pollR)) || (sayBusy && !at_done(&sayR)) ||
+            (state == NET_FINDING && !at_lookup_done(&look))) &&
+           TickCount() < give_up)
         SystemTask();
-    }
 }
 
-static void send_line(const char *line)
+void chat_init(TextWin *w)
 {
-    char *slot = outbox[(outHead + outCount) % OUTBOX];
-    if (outCount == OUTBOX) {
-        SysBeep(10);
-        return;
-    }
-    strncpy(slot, line, MAX_TEXT);
-    slot[MAX_TEXT] = 0;
-    outCount++;
-    if (state != NET_JOINED)
-        tw_print("* (not connected; will send when connected)");
-}
-
-int main(void)
-{
-    Boolean quit = false;
     StringHandle chooser;
-    OSErr err;
 
-    tw_init("RChat", "RChat 0.1: chat over AppleTalk with the `rchat` hub. Part of LocalFrame (picotalk).");
-
+    win = w;
     /* The Chooser's user name. */
     chooser = GetString(-16096);
     if (chooser && (*chooser)[0] > 0) {
@@ -229,25 +231,4 @@ int main(void)
     } else {
         memcpy(nick, "\x03Mac", 4);
     }
-
-    err = at_open();
-    if (err != noErr) {
-        tw_printf(err == -97 || err == -98
-                      ? "AppleTalk is not active (error %d). Turn it on in the Chooser, then start RChat again."
-                      : "Could not open AppleTalk (error %d).",
-                  err);
-        state = NET_OFF;
-    }
-
-    while (!quit) {
-        const char *line;
-        if (state != NET_OFF)
-            net_idle();
-        line = tw_poll(&quit);
-        if (line && state != NET_OFF)
-            send_line(line);
-    }
-    if (state != NET_OFF)
-        net_close();
-    return 0;
 }

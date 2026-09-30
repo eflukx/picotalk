@@ -74,9 +74,32 @@ typedef struct {
  * AppleTalk is not active on the printer port. */
 OSErr at_open(void);
 
-/* Looks up object:type@* (C strings, "=" as wildcard). Returns the number
- * of distinct entities found in *count. */
-OSErr at_lookup(const char *object, const char *type, NBPResult *results, short max, short *count);
+typedef struct {
+    ATHeader h;
+    unsigned char interval;  /* 28: retry interval, 8-tick units */
+    unsigned char count;     /* 29: number of tries */
+    Ptr entityPtr;           /* 30 */
+    Ptr retBuffPtr;          /* 34 */
+    short retBuffSize;       /* 38 */
+    short maxToGet;          /* 40 */
+    short numGotten;         /* 42: out */
+} NBPLookupPB;
+
+/* An NBP lookup and its buffers; must stay valid until it is done. */
+typedef struct {
+    NBPLookupPB pb;
+    unsigned char entity[3 * 33];
+    unsigned char buf[1024];
+} NBPLookup;
+
+/* Starts a lookup of object:type@* (C strings, "=" as wildcard) for up to
+ * `max` entities; it takes about 1.5 s. With async set, poll
+ * at_lookup_done(); otherwise the call returns when the lookup is over. */
+OSErr at_lookup_start(NBPLookup *l, const char *object, const char *type, short max, Boolean async);
+#define at_lookup_done(l) ((l)->pb.h.ioResult <= 0)
+
+/* The distinct entities a finished lookup found; returns how many. */
+short at_lookup_results(const NBPLookup *l, NBPResult *results, short max);
 
 /* Starts an exactly-once request to `to`. `buf` receives up to `npackets`
  * response packets and must hold npackets * ATP_MAX_DATA bytes at an even

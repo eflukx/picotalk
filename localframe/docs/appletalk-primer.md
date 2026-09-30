@@ -172,7 +172,7 @@ control: 01 TReq / 10 TResp / 11 TRel in bits 7–6; XO bit 5; EOM bit 4
 ```
 
 ATP gives no ordering between transactions and no streams; ASP and ADSP
-build those. For a pull protocol such as RChat's long poll, or the planned
+build those. For a pull protocol such as the test chat's long poll, or the planned
 remote desktop, one transaction per exchange is exactly right.
 
 ## The rest of the suite, briefly
@@ -223,12 +223,12 @@ The chain LocalFrame is built to test:
 
 ```
  Mac ══ LocalTalk ══ picotalk (Pico 2 W) ~~ Wi-Fi ~~ LAN ── PC
-       230.4 kbit/s   LLAP ⇄ LToUDP bridge    UDP multicast  lftest / rchat
+       230.4 kbit/s   LLAP ⇄ LToUDP bridge    UDP multicast  lftest serve
                       answers RTS for the PC
 
  or, all on one computer:
 
- emulator (Snow, Mini vMac) ── LToUDP on localhost ── lftest / rchat
+ emulator (Snow, Mini vMac) ── LToUDP on localhost ── lftest serve
 ```
 
 ## One exchange, byte by byte
@@ -300,8 +300,8 @@ their offsets checked at compile time.
 
 Calls can run **asynchronously**: the driver sets `ioResult` to 1 while it
 works and to the final result when done, and the program polls it from its
-event loop. RChat keeps a long poll and a send running this way while the user
-types.
+event loop. LFTest keeps the chat's long poll, a send and an echo test
+running this way while the user types.
 
 AppleTalk must be switched on in the **Chooser** ("AppleTalk: Active"). It
 then owns the printer port; opening `.MPP` otherwise fails with −97 (port in

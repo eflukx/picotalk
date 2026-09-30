@@ -6,14 +6,19 @@ keyboard. The design is in
 [docs/remote-desktop-protocol.md](docs/remote-desktop-protocol.md).
 
 The remote desktop itself is **not written yet**. This directory has what
-comes first: a small AppleTalk stack for the PC, and two test programs with
-both a PC side and a Mac side. They check each link of the chain before any
-pixels move:
+comes first: a small AppleTalk stack for the PC, and a test program with a
+PC side and a Mac side, to check each link of the chain before any pixels
+move:
 
-| Test | PC side | Mac side | What it proves |
-|---|---|---|---|
-| Echo | `lftest echo` | **ATPing** | NBP lookup, ATP requests, 8-packet responses, throughput |
-| Chat | `rchat` | **RChat** | long-polling with asynchronous requests, which the remote desktop needs |
+* **`lftest serve`** on the PC offers two services on one AppleTalk node: an
+  echo service and a chat hub.
+* **LFTest** on the Mac has two windows that run at the same time: *Echo
+  Test*, with buttons for the ping and bulk tests, and *Chat*.
+
+| Test | What it proves |
+|---|---|
+| Echo: ping and bulk | NBP lookup, ATP requests, 8-packet responses, round-trip time, throughput |
+| Chat | long polling with asynchronous requests, which the remote desktop needs; running it during a bulk test shows how the two share the link |
 
 New to AppleTalk? Read [docs/appletalk-primer.md](docs/appletalk-primer.md)
 first. It explains AppleTalk versus LocalTalk, the protocols used here, and
@@ -27,25 +32,27 @@ localframe/
 │   └── remote-desktop-protocol.md  the remote desktop design (draft)
 ├── server/               PC side, Rust (Cargo workspace)
 │   ├── appletalk/        library: LLAP addressing, DDP, NBP, ATP, LToUDP
-│   ├── lftest/           `lftest echo` server and `lftest ping` client
-│   └── rchat/            `rchat` chat hub and PC client
+│   └── lftest/           `lftest`: the test server (serve), PC clients
+│                         (ping, chat) and a frame monitor
 └── client/               Mac side, C, built with Retro68
     ├── build.sh          build with Docker or a local Retro68
     ├── CMakeLists.txt
     └── src/
-        ├── appletalk.[ch]  .MPP/.ATP glue: NBP lookup, ATP requests
-        ├── textwin.[ch]    window with transcript and input line
-        ├── atping.c        ATPing
-        └── rchat.c         RChat
+        ├── appletalk.[ch]  .MPP/.ATP glue: NBP lookup, ATP requests (async)
+        ├── textwin.[ch]    text windows with buttons and an input line
+        ├── echo.[ch]       the Echo Test window
+        ├── chat.[ch]       the Chat window
+        └── lftest.c        LFTest: sets up both windows, runs the event loop
 ```
 
 ## Status
 
 | Part | State |
 |---|---|
-| `appletalk` crate | 18 unit tests pass |
-| `lftest`, `rchat` on the PC | tested against each other over LToUDP multicast on one host: lookup, 10/10 pings, 92 KB bulk at 17.9 KB/s paced, chat both ways |
-| ATPing, RChat on the Mac | compile for the 68000 with Retro68 (about 64 KB each); **not yet run** in an emulator or on a Mac |
+| `appletalk` crate, `lftest` | 29 unit tests pass; `serve`, `ping` and `chat` tested against each other over LToUDP on one host: 10/10 pings, 92 KB bulk at 17.9 KB/s paced, chat both ways |
+| Mac, in Snow (Mac Plus) with `lftest` on the same Windows PC | the earlier single-purpose version (ATPing) worked: 10/10 pings at about 70 ms, bulk 4.3 KB/s with 0 bad packets. The bulk rate is lower than expected and still being investigated |
+| LFTest (both windows) | compiles for the 68000 (about 70 KB); **not yet run** |
+| Snow on one PC, `lftest` on another over Wi-Fi | not working yet: Windows sent Snow's multicast out of the wrong network adapter (see [Networking notes](#networking-notes)); still being checked |
 | Through a picotalk bridge to a real Mac | not yet tried |
 | Remote desktop | design only |
 
@@ -56,18 +63,22 @@ Everything talks **LToUDP**: LocalTalk frames in UDP multicast packets
 that group, so they share one virtual AppleTalk network:
 
 ```
- 1. PC only:       lftest ping ──┐
-                                 ├── LToUDP (multicast on the LAN or localhost)
-                   lftest echo ──┘
+ 1. PC only:       lftest ping / lftest chat ──┐
+                                               ├── LToUDP (multicast on the LAN or localhost)
+                   lftest serve ───────────────┘
 
- 2. Emulator:      Snow / Mini vMac running ATPing or RChat ──┐
-                                                              ├── LToUDP
-                   lftest echo / rchat ───────────────────────┘
+ 2. Emulator:      Snow / Mini vMac running LFTest ──┐
+                                                     ├── LToUDP
+                   lftest serve ─────────────────────┘
 
  3. Real Mac:      Mac ══ LocalTalk ══ picotalk (Pico 2 W, `ltoudp` build) ~~ Wi-Fi ~~┐
                                                                                         ├── LToUDP
-                   lftest echo / rchat on a PC on the same LAN ────────────────────────┘
+                   lftest serve on a PC on the same LAN ───────────────────────────────┘
 ```
+
+For stage 2, start with the emulator and `lftest serve` on the **same
+computer**: that takes the network out of the picture. Move `lftest` to
+another machine once that works.
 
 Work through the stages in order. Each one adds a single new component, so
 when something breaks you know where to look.
@@ -77,19 +88,20 @@ when something breaks you know where to look.
 You need Rust (stable, 2024 edition). From `localframe/server`:
 
 ```sh
-cargo build --release     # target/release/lftest and target/release/rchat
+cargo build --release     # target/release/lftest (lftest.exe on Windows)
 cargo test                # unit tests
 ```
 
 The workspace uses the `llap` crate from the picotalk root for the LToUDP
-constants, so build it inside this repository.
+constants, so build it inside this repository. It builds on Linux, macOS
+and Windows.
 
 ## Building the Mac side
 
-The Mac programs are C, built with [Retro68](https://github.com/autc04/Retro68),
-a GCC cross-compiler for classic Mac OS. They are written for System 6 and 7
-on any 68000 Mac with AppleTalk in ROM (Mac Plus onwards), using only calls
-those systems have.
+The Mac program is C, built with [Retro68](https://github.com/autc04/Retro68),
+a GCC cross-compiler for classic Mac OS. It is written for System 6 and 7 on
+any 68000 Mac with AppleTalk in ROM (Mac Plus onwards), using only calls
+those systems have. The build needs Linux or macOS (or Docker).
 
 ### Option A: Docker (easiest)
 
@@ -139,7 +151,7 @@ depending on the machine) and several GB of disk.
 
    The toolchain ends up in `Retro68-build/toolchain/`.
 
-4. Build the Mac programs with it:
+4. Build the Mac program with it:
 
    ```sh
    cd picotalk/localframe/client
@@ -160,13 +172,14 @@ work too.
 
 ### What you get
 
-For each program, `build/` holds:
+`build/` holds:
 
 | File | Use |
 |---|---|
-| `ATPing.dsk`, `RChat.dsk` | an 800K HFS disk image with the application on it: mount it in an emulator, or write it to a floppy |
-| `ATPing.bin`, `RChat.bin` | MacBinary: transfer to a real Mac and unpack with StuffIt Expander or BinUnpk |
-| `ATPing.APPL`, `RChat.APPL` | the application with its resource fork in `.rsrc/`, for Basilisk-style shared folders |
+| `LFTest.dsk` | an 800K HFS disk image with the application on it: mount it in an emulator, or write it to a floppy |
+| `LFTest.bin` | MacBinary: the application with its resource fork, packed into one file. A plain copy (for example through a BlueSCSI's Toolbox share) arrives as a document the Finder cannot open; unpack it on the Mac with BinUnpk or StuffIt Expander first |
+| `LFTest.APPL` | the application with its resource fork in `.rsrc/`, for Basilisk-style shared folders |
+| `LFTest.code.bin` | an intermediate build file (the code before Rez adds the other resources); ignore it |
 
 ## Setting up an emulator (stage 2)
 
@@ -179,7 +192,7 @@ box.
 2. Enable the bridge: **Ports → Channel B (printer) → Enable LocalTalk
    (UDP)**, or start Snow with `--serial-bridge-b localtalk`. The setting is
    saved in the workspace.
-3. Insert `client/build/ATPing.dsk` or `RChat.dsk` as a floppy.
+3. Insert `client/build/LFTest.dsk` as a floppy.
 4. In the emulated Mac, open the **Chooser** and set **AppleTalk: Active**.
    Restart if it asks.
 
@@ -198,9 +211,29 @@ window to mount it.
   loopback is enabled.
 * On different computers they must be on the same LAN segment, and the
   firewall must allow **UDP port 1954** and multicast to 239.192.76.84.
-* If the PC has several network interfaces (Wi-Fi and Ethernet, Docker
-  bridges, VPN), multicast may go out on the wrong one. Pass
-  `--iface <address of the right interface>` to the PC tools.
+* **Several network interfaces** (Wi-Fi and Ethernet, Docker bridges, VPNs,
+  Tailscale, WSL): multicast may go out on the wrong one. The PC tools take
+  `--iface <address of the right interface>`. Emulators have no such
+  setting; the operating system picks.
+* **Windows** picks the connected adapter with the lowest *interface
+  metric*, which is often Tailscale, a VPN or `vEthernet (WSL)` rather than
+  Wi-Fi. List them with
+  `Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric`, and
+  pin the LToUDP group to the right adapter (administrator PowerShell, then
+  restart the emulator):
+
+  ```powershell
+  New-NetRoute -DestinationPrefix 239.192.76.84/32 -InterfaceAlias "Wi-Fi" -RouteMetric 1
+  ```
+
+  This changes the route for that one multicast address only, and survives
+  a reboot. `Remove-NetRoute -DestinationPrefix 239.192.76.84/32` undoes it.
+  A network classified as *Public* also blocks it; make it *Private*.
+* **Wi-Fi**: multicast between two Wi-Fi clients goes through the access
+  point. Client isolation, IGMP snooping without a querier, or
+  multicast-to-unicast conversion can drop it even within one subnet.
+* To see what actually arrives, run `lftest monitor` (below) on each
+  machine.
 
 ## Connecting a real Mac (stage 3)
 
@@ -216,22 +249,66 @@ window to mount it.
 2. Wire the Pico's transceiver to the Mac's printer port, or to a LocalTalk
    box on the network (see the picotalk README, "Wiring").
 3. Put the PC on the same Wi-Fi network or LAN as the Pico.
-4. On the Mac, set AppleTalk Active in the Chooser and run ATPing.
+4. On the Mac, set AppleTalk Active in the Chooser and run LFTest.
 
 Keep `--rate` at or below its default of 20000 bytes/s. LocalTalk carries at
 most 28.8 KB/s, and the bridge has only a small queue.
 
-## Using lftest and ATPing
+## Using lftest
 
-`lftest echo` answers NBP lookups for `NAME:LFEcho` and echoes ATP requests:
+`lftest` is the PC side: one program with four subcommands. Run it with
+`cargo run --release -p lftest -- <subcommand>` from `localframe/server`, or
+as `target/release/lftest <subcommand>`.
+
+### `lftest serve`: the server
 
 ```sh
-lftest echo                  # NAME is the host name
-lftest echo --name lab -v    # log every request
+lftest serve                  # NAME is the host name
+lftest serve --name lab -v    # log every lookup and request
 ```
 
-`lftest ping` runs, from a PC, the same tests the Mac's ATPing runs: stage 1.
-Run it in a second terminal, on the same PC or on another one on the LAN:
+It registers `NAME:LFEcho` (socket 250) and `NAME:RChat` (socket 251) on one
+node, and answers both. The terminal is part of the chat: type a line and
+press Enter to send it as NAME. `/who` lists who is connected, and `/quit`
+stops the server. Without a terminal (stdin closed) it keeps serving.
+
+The node number is derived from NAME, so a restarted server comes back at
+the same address and connected Macs carry on without looking it up again.
+
+### LFTest on the Mac
+
+Start it with AppleTalk active. It opens two windows, both working at once:
+
+**Echo Test** finds the server by itself and shows its name and address.
+Then use the buttons:
+
+| Button | Does |
+|---|---|
+| Ping | 10 pings (32- and 566-byte payloads): checks the echo, shows round-trip times and the Mac's node number as the server sees it |
+| Bulk | 20 transactions of 8 × 578 bytes: checks every byte, shows bytes/s |
+| Find Server | look the server up again (after moving it to another machine) |
+| Stop | stop a running test; Esc and ⌘. do the same |
+
+If a request gets no answer (about 10 s), the test stops and LFTest looks
+for the server again.
+
+The Mac's clock ticks 60 times a second, so round-trip times are only
+accurate to about 17 ms. On real LocalTalk, the bulk rate is the figure the
+remote desktop design needs.
+
+**Chat** joins the hub with the Chooser's user name as nickname. Type in
+the line at the bottom of the window and press Return; typing always goes
+there, whichever window is in front. If the hub goes away, the chat keeps
+looking for it and rejoins when it is back. ⌘Q quits and tells the hub you
+left.
+
+Mac text uses the Mac Roman character set. `lftest` converts between it and
+UTF-8; characters Mac Roman lacks become `?`.
+
+### `lftest ping` and `lftest chat`: PC clients
+
+The same tests and chat as LFTest, from a PC: stage 1, or a second chat
+participant.
 
 ```
 $ lftest ping
@@ -241,59 +318,36 @@ ping 0: 32 bytes, 14.0 ms, server sees us as 0.21
 …
 pings: 10/10 ok
 bulk: 92480 bytes in 5.16 s = 17.9 KB/s, 0 bad packets, 0 failed transactions
+
+$ lftest chat --name tester
 ```
 
-**ATPing** on the Mac looks up LFEcho servers at start and lists them. Type
-a command in the input line at the bottom and press Return:
-
-| Command | Does |
-|---|---|
-| `p` | 10 pings (32- and 566-byte payloads): checks the echo, shows round-trip times and the Mac's node number as the server sees it |
-| `b` | 20 bulk transactions of 8 × 578 bytes: checks every byte, shows bytes/s |
-| `l` | look the servers up again |
-| `1`–`8` | use that server from the list |
-| ⌘Q | quit |
-
-The Mac's clock ticks 60 times a second, so round-trip times are only
-accurate to about 17 ms. On an emulator the bulk rate shows the pacing (about
-18 KB/s). On real LocalTalk expect somewhat less; that is the figure the
-remote desktop design needs.
-
-## Using rchat and RChat
-
-`rchat` on the PC runs a chat **hub** and registers `NICK:RChat`. Macs (and
-other PCs) join it; whatever anyone types goes to everyone.
+### `lftest monitor`: see the traffic
 
 ```sh
-rchat                  # hub; NICK is the host name
-rchat --nick Rogier
+lftest monitor --iface 192.168.1.147
 ```
 
-Type a line and press Enter to send it. `/who` lists who is connected, and
-`/quit` (or Ctrl-D) stops the hub.
+Prints every LToUDP frame the machine receives, with the sender's IP
+address and the frame decoded:
 
-**RChat** on the Mac finds the hub with NBP and joins it, using the
-Chooser's user name as nickname. The window shows the conversation; type
-in the bottom line and press Return to send. ⌘Q quits and tells the hub you
-left. If the hub goes away, RChat keeps looking for it and rejoins when it
-is back.
-
-To try the chat without a Mac, join from a second terminal:
-
-```sh
-rchat --join --nick tester
+```
+  0.504 192.168.1.147:1954    id b2a24e94  LLAP ENQ  for node 59
+  0.712 192.168.1.147:1954    id b2a24e94  DDP 0.59:2 → broadcast:2  NBP lookup =:LFEcho@* (id 163, reply to 0.59:2)
 ```
 
-Mac text uses the Mac Roman character set. rchat converts between it and
-UTF-8; characters Mac Roman lacks become `?`.
+It never sends anything. When a lookup finds nothing, run it on both
+machines: it shows whether the frames leave one and arrive at the other,
+and from which address.
 
 ## Common options
 
-All PC tools take these options:
+All `lftest` subcommands take these options:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--node N` | random | LLAP node ID to try first: 128–254 for servers (`lftest echo`, `rchat`), 1–127 for clients (`lftest ping`, `rchat --join`) |
+| `--name NAME` | host name | server name (`serve`) or chat nickname (`chat`) |
+| `--node N` | from NAME (`serve`), random (clients) | LLAP node ID to try first: 128–254 for `serve`, 1–127 for `ping` and `chat` |
 | `--rate BPS` | 20000 | pace outgoing frames to BPS bytes/s; 0 sends at once (fine for emulators, not for a bridge) |
 | `--iface IP` | OS choice | address of the interface to use for multicast |
 
@@ -302,8 +356,8 @@ All PC tools take these options:
 | Service | NBP type | Socket | Protocol description |
 |---|---|---|---|
 | Echo | `LFEcho` | 250 | [`server/lftest/src/echo.rs`](server/lftest/src/echo.rs) |
-| Chat hub | `RChat` | 251 | [`server/rchat/src/proto.rs`](server/rchat/src/proto.rs) |
-| Requests from PC tools | – | 254 | – |
+| Chat hub | `RChat` | 251 | [`server/lftest/src/chat.rs`](server/lftest/src/chat.rs) |
+| Requests from PC clients | – | 254 | – |
 
 Both services use exactly-once ATP transactions. The chat uses the pull
 model the remote desktop will use: the client always has one request
@@ -314,8 +368,8 @@ send.
 
 | Symptom | Likely cause |
 |---|---|
-| ATPing/RChat: error −97 or −98 at start | AppleTalk is inactive: Chooser → AppleTalk Active |
-| Nothing found in the lookup | the PC tool is not running; the emulator's LToUDP bridge is off; a firewall blocks UDP 1954; the wrong interface (`--iface`) |
+| LFTest: error −97 or −98 at start | AppleTalk is inactive: Chooser → AppleTalk Active |
+| Nothing found in the lookup | `lftest serve` is not running; the emulator's LToUDP bridge is off; a firewall blocks UDP 1954; multicast leaves on the wrong adapter (see [Networking notes](#networking-notes)). `lftest monitor` shows which |
 | `lftest ping` finds nothing, on one PC | another program may hold port 1954 exclusively: stop it, or run the tools on another PC |
 | Pings work, bulk fails through picotalk | pacing too fast for the bridge: lower `--rate` |
 | Error −1096 (reqFailed) | the server stopped answering: it quit, or packets are being lost |

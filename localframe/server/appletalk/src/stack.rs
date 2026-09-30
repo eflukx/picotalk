@@ -41,6 +41,17 @@ impl Role {
             Role::Server => 128..=254,
         }
     }
+
+    /// A node ID in this role's range derived from `name`, to try first.
+    /// A server that restarts under the same name then usually gets the
+    /// same address back, so clients holding it keep working (Macs keep
+    /// their last node ID in PRAM for the same reason).
+    pub fn node_for(self, name: &[u8]) -> u8 {
+        // FNV-1a
+        let h = name.iter().fold(0x811C_9DC5u32, |h, &b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+        let range = self.nodes();
+        range.start() + (h % (*range.end() as u32 - *range.start() as u32 + 1)) as u8
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -340,6 +351,15 @@ mod tests {
         let State::Acquiring { candidate, sent: 0, .. } = s.state else { panic!() };
         assert_ne!(candidate, 200);
         assert!(Role::Server.nodes().contains(&candidate));
+    }
+
+    #[test]
+    fn node_for_is_stable_and_in_range() {
+        assert_eq!(Role::Server.node_for(b"crunchy"), Role::Server.node_for(b"crunchy"));
+        for name in [&b""[..], b"a", b"crunchy", b"a much longer server name"] {
+            assert!(Role::Server.nodes().contains(&Role::Server.node_for(name)));
+            assert!(Role::Workstation.nodes().contains(&Role::Workstation.node_for(name)));
+        }
     }
 
     #[test]

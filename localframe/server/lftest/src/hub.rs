@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use appletalk::atp::{MAX_DATA, Request, ResponsePacket};
 
-use crate::proto::{self, Message};
+use crate::chat::{self as proto, Message};
 
 /// Messages kept for clients that fall behind, and for replay on JOIN.
 const LOG_LEN: usize = 64;

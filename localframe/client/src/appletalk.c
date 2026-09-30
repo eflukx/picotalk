@@ -16,17 +16,6 @@
 
 typedef struct {
     ATHeader h;
-    unsigned char interval;  /* 28: retry interval, 8-tick units */
-    unsigned char count;     /* 29: number of tries */
-    Ptr entityPtr;           /* 30 */
-    Ptr retBuffPtr;          /* 34 */
-    short retBuffSize;       /* 38 */
-    short maxToGet;          /* 40 */
-    short numGotten;         /* 42: out */
-} NBPLookupPB;
-
-typedef struct {
-    ATHeader h;
     char unused[16];
     Ptr aKillQEl; /* 44: the request to cancel */
 } ATPKillPB;
@@ -64,36 +53,36 @@ static unsigned char *put_pstring(unsigned char *p, const char *s)
     return p + n;
 }
 
-OSErr at_lookup(const char *object, const char *type, NBPResult *results, short max, short *count)
+OSErr at_lookup_start(NBPLookup *l, const char *object, const char *type, short max, Boolean async)
 {
-    /* The entity to look up is three packed Pascal strings. */
-    static unsigned char entity[3 * 33];
-    static unsigned char buf[1024];
-    NBPLookupPB pb;
     unsigned char *p;
-    short i, n = 0;
-    OSErr err;
 
-    p = put_pstring(entity, object);
+    /* The entity to look up is three packed Pascal strings. */
+    p = put_pstring(l->entity, object);
     p = put_pstring(p, type);
     put_pstring(p, "*");
 
-    memset(&pb, 0, sizeof pb);
-    pb.h.ioRefNum = MPP_REFNUM;
-    pb.h.csCode = CS_LOOKUP_NAME;
-    pb.interval = 4; /* 4 × 8 ticks ≈ 0.5 s */
-    pb.count = 3;
-    pb.entityPtr = (Ptr)entity;
-    pb.retBuffPtr = (Ptr)buf;
-    pb.retBuffSize = sizeof buf;
-    pb.maxToGet = max;
-    err = PBControlSync((ParmBlkPtr)&pb);
-    if (err != noErr)
-        return err;
+    memset(&l->pb, 0, sizeof l->pb);
+    l->pb.h.ioRefNum = MPP_REFNUM;
+    l->pb.h.csCode = CS_LOOKUP_NAME;
+    l->pb.interval = 4; /* 4 × 8 ticks ≈ 0.5 s */
+    l->pb.count = 3;
+    l->pb.entityPtr = (Ptr)l->entity;
+    l->pb.retBuffPtr = (Ptr)l->buf;
+    l->pb.retBuffSize = sizeof l->buf;
+    l->pb.maxToGet = max;
+    return async ? PBControlAsync((ParmBlkPtr)&l->pb) : PBControlSync((ParmBlkPtr)&l->pb);
+}
 
+short at_lookup_results(const NBPLookup *l, NBPResult *results, short max)
+{
     /* Reply tuples: net(2) node socket enumerator object type zone. */
-    p = buf;
-    for (i = 0; i < pb.numGotten && n < max; i++) {
+    const unsigned char *p = l->buf;
+    short i, n = 0;
+
+    if (l->pb.h.ioResult != noErr)
+        return 0;
+    for (i = 0; i < l->pb.numGotten && n < max; i++) {
         NBPResult *r = &results[n];
         short k, dup = 0;
         r->addr.net = (unsigned short)((p[0] << 8) | p[1]);
@@ -111,8 +100,7 @@ OSErr at_lookup(const char *object, const char *type, NBPResult *results, short 
         if (!dup)
             n++;
     }
-    *count = n;
-    return noErr;
+    return n;
 }
 
 OSErr at_request(ATPRequest *r, ATAddr to, const void *data, short len, long user_bytes, void *buf,
