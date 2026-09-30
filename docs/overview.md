@@ -118,7 +118,8 @@ answer an RTS within 200 µs, so the bridge answers for it.
 | Part | State |
 |---|---|
 | `llap` core (CRC, FM0, HDLC, MAC, host protocol, bridge rules) | written, 21 host tests pass |
-| Firmware, `host-uart` / `host-usb` / `ltoudp` | compiles; **never run on hardware** |
+| Firmware, `host-uart` / `host-usb` / `ltoudp` | compiles for the RP2350 and the RP2040; **never run on hardware** |
+| RP2040 (Pico / Pico W) | same code, `rp2040` feature; whether its Cortex-M0+ keeps up with the line in real time is unmeasured |
 | Behaviour against a real Mac or IIgs | untested |
 
 ## Next steps

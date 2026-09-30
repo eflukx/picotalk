@@ -1282,6 +1282,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "llap",
  "panic-probe",
+ "portable-atomic",
  "static_cell",
 ]
 
@@ -1344,6 +1345,9 @@ name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
+dependencies = [
+ "critical-section",
+]
 
 [[package]]
 name = "precomputed-hash"

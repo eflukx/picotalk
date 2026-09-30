@@ -1,4 +1,6 @@
-//! picotalk: a TashTalk-compatible LocalTalk interface on the RP2350.
+//! picotalk: a TashTalk-compatible LocalTalk interface on the RP2350
+//! (Pico 2 / Pico 2 W) or the RP2040 (Pico / Pico W); pick with the `rp2350`
+//! (default) or `rp2040` feature.
 //!
 //! Core 1 runs the LocalTalk link (PIO line coding, framing, MAC) in a busy
 //! loop. Core 0 connects it to one of (pick with a cargo feature):
@@ -6,9 +8,10 @@
 //! * `host-uart` (default): the TashTalk protocol on UART0, as a drop-in
 //!   replacement for a TashTalk chip (e.g. in an AirTalk or on a Pi);
 //! * `host-usb`: the TashTalk protocol over USB CDC-ACM;
-//! * `ltoudp`: a standalone LocalTalk <-> LToUDP bridge over Wi-Fi (Pico 2 W).
+//! * `ltoudp`: a standalone LocalTalk <-> LToUDP bridge over Wi-Fi (Pico W,
+//!   Pico 2 W).
 //!
-//! Pins (Pico 2 / Pico 2 W):
+//! Pins (the same on all four boards):
 //!
 //! | GPIO | Function                                               |
 //! |------|--------------------------------------------------------|
@@ -41,6 +44,9 @@ use embassy_rp::bind_interrupts;
 use panic_probe as _;
 use static_cell::StaticCell;
 
+// Shown by `picotool info`. RP2350 only: on the RP2040 the binary info
+// header must sit right after boot2, which our memory layout doesn't do.
+#[cfg(feature = "rp2350")]
 #[unsafe(link_section = ".bi_entries")]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
@@ -75,6 +81,9 @@ bind_interrupts!(struct Irqs {
     all(feature = "ltoudp", not(feature = "host-uart"), not(feature = "host-usb")),
 )))]
 compile_error!("enable exactly one of the host-uart, host-usb and ltoudp features");
+
+#[cfg(not(any(all(feature = "rp2350", not(feature = "rp2040")), all(feature = "rp2040", not(feature = "rp2350")))))]
+compile_error!("enable exactly one chip feature: rp2350 (default) or rp2040");
 
 static mut CORE1_STACK: Stack<8192> = Stack::new();
 static LINK_BUFFERS: StaticCell<link::Buffers> = StaticCell::new();

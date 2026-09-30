@@ -3,12 +3,12 @@ name = "picotalk"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
-description = "TashTalk-compatible LocalTalk interface for the RP2350"
+description = "TashTalk-compatible LocalTalk interface for the RP2350 and RP2040"
 
 [dependencies]
 llap = { path = "../llap", features = ["defmt"] }
 
-embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info", "executor-thread"] }
+embassy-rp = { version = "0.10.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "executor-thread"] }
 embassy-executor = { version = "0.10.0", features = ["defmt"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
@@ -25,9 +25,19 @@ defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2.1"
+# The RP2040's Cortex-M0+ has no atomic compare-and-swap; this gives crates
+# like static_cell one through a critical section (native on the RP2350).
+portable-atomic = { version = "1.11", features = ["critical-section"] }
 
 [features]
-default = ["host-uart"]
+default = ["rp2350", "host-uart"]
+
+## Chip, pick one. RP2350: Pico 2 / Pico 2 W, target thumbv8m.main-none-eabihf
+## (the default in .cargo/config.toml).
+rp2350 = ["embassy-rp/rp235xa", "embassy-rp/binary-info"]
+## RP2040: Pico / Pico W, target thumbv6m-none-eabi.
+rp2040 = ["embassy-rp/rp2040"]
+
 ## Talk to the host over UART0 (1 Mbaud, 8N1, RTS flow control), like a TashTalk chip.
 host-uart = []
 ## Talk to the host over USB CDC-ACM instead.

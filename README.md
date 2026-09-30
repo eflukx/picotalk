@@ -1,8 +1,8 @@
 # picotalk
 
-A LocalTalk interface for the RP2350 (Raspberry Pi Pico 2 / Pico 2 W), written
-in Rust. It replaces the PIC12F1840 running
-[TashTalk](https://github.com/lampmerchant/tashtalk): the RP2350's PIO does the
+A LocalTalk interface for the RP2350 (Raspberry Pi Pico 2 / Pico 2 W) and the
+RP2040 (Pico / Pico W), written in Rust. It replaces the PIC12F1840 running
+[TashTalk](https://github.com/lampmerchant/tashtalk): the chip's PIO does the
 line coding, and its second core runs the LLAP link layer.
 
 This project is inspired by, and closely follows, Tashtari's excellent
@@ -18,7 +18,7 @@ Three modes, chosen at build time:
 |-----------------------|------------------------------------------------------------------------------|
 | `host-uart` (default) | TashTalk protocol on UART0: drop-in for a TashTalk chip (AirTalk, Pi hat, …) |
 | `host-usb`            | TashTalk protocol over USB CDC-ACM: plug into a PC and run tashtalkd/TashRouter |
-| `ltoudp`              | Pico 2 W only: standalone LocalTalk ⇄ LToUDP bridge over Wi-Fi, no host      |
+| `ltoudp`              | Pico 2 W or Pico W: standalone LocalTalk ⇄ LToUDP bridge over Wi-Fi, no host |
 
 > **Status:** compiles for all three modes and the protocol core is covered by
 > host tests (loopback through the encoder and decoder at ±3 % clock skew), but it
@@ -29,7 +29,7 @@ Three modes, chosen at build time:
 ```
 llap/       no_std core, host-testable: CRC, FM0, HDLC framing, MAC,
             TashTalk protocol, LToUDP bridge policy
-firmware/   RP2350 firmware (embassy): PIO programs, core-1 link loop,
+firmware/   RP2350 / RP2040 firmware (embassy): PIO programs, core-1 link loop,
             core-0 host/Wi-Fi side
 ```
 
@@ -53,7 +53,7 @@ flowchart LR
 
     subgraph core0["Core 0: embassy (one mode per build)"]
         host["TashTalk protocol<br/>UART or USB"]
-        udp["LToUDP bridge<br/>Wi-Fi, Pico 2 W"]
+        udp["LToUDP bridge<br/>Wi-Fi, Pico (2) W"]
     end
 
     bus --> rxsm --> dec --> defr --> mac
@@ -194,23 +194,40 @@ transmitting, so that is expected.
 
 ## Building
 
+A build picks one chip (`rp2350`, the default, or `rp2040`) and one mode
+(`host-uart`, the default, `host-usb` or `ltoudp`).
+
 ```sh
-rustup target add thumbv8m.main-none-eabihf
+rustup target add thumbv8m.main-none-eabihf   # RP2350
+rustup target add thumbv6m-none-eabi          # RP2040
 
 # Host-side tests of the protocol core
 cd llap && cargo test
 
-# Firmware (UART mode)
-cd firmware && cargo build --release
-# USB mode
-cargo build --release --no-default-features --features host-usb
-# Standalone Wi-Fi LToUDP bridge (Pico 2 W)
+# RP2350 (Pico 2 / Pico 2 W)
+cd firmware && cargo build --release           # UART mode
+cargo build --release --no-default-features --features rp2350,host-usb
 WIFI_SSID=myssid WIFI_PASSWORD=secret \
-  cargo build --release --no-default-features --features ltoudp
+  cargo build --release --no-default-features --features rp2350,ltoudp
 
-# Flash: `cargo run --release …` with a debug probe (probe-rs), or
-# picotool load -u -v -x -t elf target/thumbv8m.main-none-eabihf/release/picotalk
+# RP2040 (Pico / Pico W): the same modes, with the chip and target changed
+cargo build --release --no-default-features --features rp2040,host-uart \
+  --target thumbv6m-none-eabi
+WIFI_SSID=myssid WIFI_PASSWORD=secret \
+  cargo build --release --no-default-features --features rp2040,ltoudp \
+  --target thumbv6m-none-eabi
+
+# Flash: `cargo run --release …` (same options) with a debug probe
+# (probe-rs), or over USB in BOOTSEL mode:
+# picotool load -u -v -x -t elf target/<target>/release/picotalk
 ```
+
+**RP2040 status:** all modes build, and the image layout is checked (boot2
+at the start of flash), but it has not run yet. The RP2040's Cortex-M0+
+(125 MHz) is slower than the RP2350's Cortex-M33 (150 MHz), and core 1 has
+to decode the line in real time: check the RTS → CTS turnaround with a logic
+analyser before relying on it. `picotool info` shows no program name on the
+RP2040 builds.
 
 ## More documentation
 

@@ -1,7 +1,14 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# RP2350 (Pico 2 / Pico 2 W)
+[target.thumbv8m.main-none-eabihf]
 runner = "probe-rs run --chip RP235x"
 # Without a debug probe, flash over USB instead:
 #runner = "picotool load -u -v -x -t elf"
+
+# RP2040 (Pico / Pico W): build with
+#   --no-default-features --features rp2040,<mode> --target thumbv6m-none-eabi
+[target.thumbv6m-none-eabi]
+runner = "probe-rs run --chip RP2040"
+#runner = "elf2uf2-rs -d"
 
 [build]
 target = "thumbv8m.main-none-eabihf"

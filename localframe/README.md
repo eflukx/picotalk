@@ -243,12 +243,13 @@ window to mount it.
 ## Connecting a real Mac (stage 3)
 
 1. Build and flash picotalk in its standalone bridge mode (see the
-   [picotalk README](../README.md)):
+   [picotalk README](../README.md); for a Pico W, use `rp2040` and the
+   RP2040 target as described there):
 
    ```sh
    cd firmware
    WIFI_SSID=myssid WIFI_PASSWORD=secret \
-     cargo build --release --no-default-features --features ltoudp
+     cargo build --release --no-default-features --features rp2350,ltoudp
    ```
 
 2. Wire the Pico's transceiver to the Mac's printer port, or to a LocalTalk
