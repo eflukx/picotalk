@@ -83,20 +83,45 @@ static void start_say(void)
     sayBusy = at_request(&sayR, hub, sayReq, 2 + n, 0, sayBuf, 1, 2, true) == noErr;
 }
 
+/* Shows a lookup error once, not on every retry. */
+static void lookup_error(OSErr err)
+{
+    static OSErr shown;
+    if (err != shown)
+        tw_printf(win, "* Looking up the hub failed (error %d); retrying.", err);
+    shown = err;
+}
+
 static void start_lookup(void)
 {
-    if (!warnedNoHub)
+    static Boolean announced;
+    OSErr err = at_lookup_start(&look, "=", HUB_TYPE, 1, true);
+
+    if (err == AT_BUSY) { /* the Echo Test window is looking up; wait */
+        nextLookup = TickCount() + 30;
+        return;
+    }
+    if (!announced && !warnedNoHub)
         tw_print(win, "* Looking for a chat hub...");
-    if (at_lookup_start(&look, "=", HUB_TYPE, 1, true) == noErr)
+    announced = true;
+    if (err == noErr) {
         state = NET_FINDING;
-    else
-        nextLookup = TickCount() + 5 * 60;
+    } else {
+        lookup_error(err);
+        nextLookup = TickCount() + 60;
+    }
 }
 
 static void on_lookup(void)
 {
     NBPResult found;
 
+    if (look.pb.h.ioResult != noErr) {
+        lookup_error(look.pb.h.ioResult);
+        state = NET_LOOKUP;
+        nextLookup = TickCount() + 60;
+        return;
+    }
     if (at_lookup_results(&look, &found, 1) == 0) {
         if (!warnedNoHub)
             tw_print(win, "* No hub found yet; still looking. Is `lftest serve` running on the PC?");

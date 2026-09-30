@@ -92,9 +92,15 @@ typedef struct {
     unsigned char buf[1024];
 } NBPLookup;
 
+/* at_lookup_start(): another lookup of ours is still running; try again
+ * later. Older AppleTalk may not run two NBP lookups at once, so they take
+ * turns. */
+#define AT_BUSY 1
+
 /* Starts a lookup of object:type@* (C strings, "=" as wildcard) for up to
  * `max` entities; it takes about 1.5 s. With async set, poll
- * at_lookup_done(); otherwise the call returns when the lookup is over. */
+ * at_lookup_done(); otherwise the call returns when the lookup is over.
+ * Returns AT_BUSY while another lookup is running. */
 OSErr at_lookup_start(NBPLookup *l, const char *object, const char *type, short max, Boolean async);
 #define at_lookup_done(l) ((l)->pb.h.ioResult <= 0)
 

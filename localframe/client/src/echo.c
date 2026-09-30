@@ -18,7 +18,7 @@
 #define BULKS 20
 #define CANCELED (-128) /* userCanceledErr */
 
-enum { IDLE, LOOKUP, PING, BULK, STOPPING };
+enum { IDLE, FIND_WAIT, LOOKUP, PING, BULK, STOPPING };
 
 static TextWin *win;
 static ControlHandle bPing, bBulk, bFind, bStop;
@@ -56,17 +56,52 @@ static void set_state(short s)
     buttons();
 }
 
+#define FIND_TRIES 3
+
+static short findTries;
+static long findAt; /* when FIND_WAIT tries again */
+
+/* A lookup could not start or failed, e.g. excessCollsns (-95), which the
+ * first transmissions after start-up tend to hit: try again a little
+ * later, and only report it when every try failed. */
+static void find_failed(OSErr err)
+{
+    if (++findTries < FIND_TRIES) {
+        findAt = TickCount() + 60;
+        set_state(FIND_WAIT);
+    } else {
+        tw_printf(win, "  NBP lookup failed (error %d).", err);
+        set_state(IDLE);
+    }
+}
+
+/* Starts the lookup, or waits in FIND_WAIT while the chat's is running. */
+static void start_find(void)
+{
+    OSErr err = at_lookup_start(&look, "=", ECHO_TYPE, 1, true);
+    if (err == AT_BUSY) {
+        findAt = TickCount();
+        set_state(FIND_WAIT);
+    } else if (err == noErr) {
+        set_state(LOOKUP);
+    } else {
+        find_failed(err);
+    }
+}
+
 static void find(void)
 {
     tw_print(win, "Looking for " ECHO_TYPE " servers...");
-    if (at_lookup_start(&look, "=", ECHO_TYPE, 1, true) == noErr)
-        set_state(LOOKUP);
-    else
-        tw_print(win, "  NBP lookup failed.");
+    findTries = 0;
+    start_find();
 }
 
 static void found(void)
 {
+    if (look.pb.h.ioResult != noErr) {
+        find_failed(look.pb.h.ioResult);
+        return;
+    }
     haveServer = at_lookup_results(&look, &server, 1) > 0;
     if (haveServer)
         tw_printf(win, "  Server: %.*s at %u.%u:%u", server.object[0], (const char *)server.object + 1,
@@ -174,6 +209,10 @@ static void bulk_done(void)
 void echo_idle(void)
 {
     switch (state) {
+    case FIND_WAIT:
+        if (TickCount() >= findAt)
+            start_find();
+        break;
     case LOOKUP:
         if (at_lookup_done(&look))
             found();

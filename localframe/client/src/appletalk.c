@@ -53,9 +53,16 @@ static unsigned char *put_pstring(unsigned char *p, const char *s)
     return p + n;
 }
 
+/* The lookup running now, if any: lookups take turns. */
+static NBPLookup *activeLookup;
+
 OSErr at_lookup_start(NBPLookup *l, const char *object, const char *type, short max, Boolean async)
 {
     unsigned char *p;
+
+    if (activeLookup && !at_lookup_done(activeLookup))
+        return AT_BUSY;
+    activeLookup = l;
 
     /* The entity to look up is three packed Pascal strings. */
     p = put_pstring(l->entity, object);
