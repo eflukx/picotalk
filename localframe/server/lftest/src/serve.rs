@@ -1,7 +1,8 @@
-//! `lftest serve`: one node offering both test services.
+//! `lftest serve`: one node offering all the test services.
 //!
 //! * `NAME:LFEcho` on socket 250, answered at once (see `echo`);
-//! * `NAME:RChat` on socket 251, a chat hub that holds polls (see `hub`).
+//! * `NAME:RChat` on socket 251, a chat hub that holds polls (see `hub`);
+//! * `NAME:Teletekst` on socket 252, NOS Teletekst via ssh (see `teletekst`).
 //!
 //! Lines typed on the terminal are posted to the chat as NAME.
 
@@ -13,10 +14,12 @@ use appletalk::{Entity, Event, Node, Role};
 use crate::chat::{self, Message};
 use crate::echo::{self, Echo};
 use crate::hub::Hub;
+use crate::teletekst::{self, Teletekst};
 use crate::{Options, stdin_lines};
 
 pub const ECHO_SOCKET: u8 = 250;
 pub const CHAT_SOCKET: u8 = 251;
+pub const TELETEKST_SOCKET: u8 = 252;
 
 pub fn show(m: &Message) {
     if m.nick == b"*" {
@@ -33,8 +36,10 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
     let entity = |kind: &str| Entity { object: o.name.clone(), kind: kind.as_bytes().to_vec(), zone: b"*".to_vec() };
     node.stack.register(entity(echo::TYPE), ECHO_SOCKET);
     node.stack.register(entity(chat::TYPE), CHAT_SOCKET);
+    node.stack.register(entity(teletekst::TYPE), TELETEKST_SOCKET);
     let mut echo = Echo::default();
     let mut hub = Hub::new(o.name.clone());
+    let mut tt = Teletekst::new(o.teletekst_host.clone());
     let lines = stdin_lines();
     eprintln!("joined LToUDP, acquiring a node address…");
 
@@ -44,10 +49,12 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
         for ev in node.step()? {
             match ev {
                 Event::Ready(n) => eprintln!(
-                    "node {n}: serving {} on socket {ECHO_SOCKET} and {} on socket {CHAT_SOCKET}\n\
-                     type to chat; /who lists who is connected, /quit stops",
+                    "node {n}: serving {} (socket {ECHO_SOCKET}), {} ({CHAT_SOCKET}) and {} ({TELETEKST_SOCKET}, \
+                     via ssh {})\ntype to chat; /who lists who is connected, /quit stops",
                     entity(echo::TYPE),
-                    entity(chat::TYPE)
+                    entity(chat::TYPE),
+                    entity(teletekst::TYPE),
+                    o.teletekst_host
                 ),
                 Event::LookedUp { from, pattern } if o.verbose => eprintln!("lookup for {pattern} from {from}"),
                 Event::Request { socket: ECHO_SOCKET, req } => {
@@ -63,6 +70,12 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
                     }
                     answers.push((ECHO_SOCKET, req, response));
                 }
+                Event::Request { socket: TELETEKST_SOCKET, req } => {
+                    if o.verbose {
+                        eprintln!("teletekst: {} cmd {:02x}", req.from, req.data.first().copied().unwrap_or(0));
+                    }
+                    answers.extend(tt.handle(TELETEKST_SOCKET, req, now));
+                }
                 Event::Request { socket, req } => {
                     if o.verbose {
                         eprintln!("chat: {} cmd {:02x}", req.from, req.data.first().copied().unwrap_or(0));
@@ -76,6 +89,7 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
         }
         let (due, posted) = hub.due(now);
         answers.extend(due);
+        answers.extend(tt.due(now));
         posted.iter().for_each(show);
         for (socket, req, response) in answers {
             node.stack.respond(socket, &req, response, now);

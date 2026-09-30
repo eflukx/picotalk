@@ -23,6 +23,10 @@ typedef enum {
     TW_BUTTON, /* the user clicked `button` in `win` */
     TW_CANCEL, /* Esc or Cmd-. */
     TW_QUIT,   /* Quit from the File menu */
+    /* For windows the application draws itself (not made by tw_new): */
+    TW_KEY,    /* a key, when no text window takes typing; arrow keys as 1C-1F */
+    TW_CLICK,  /* a click in `window` at `where` (local coordinates) */
+    TW_UPDATE, /* `window` needs redrawing: BeginUpdate, draw, EndUpdate */
 } TWKind;
 
 typedef struct {
@@ -30,6 +34,10 @@ typedef struct {
     TextWin *win;
     const char *line;
     ControlHandle button;
+    WindowPtr window;
+    char key;
+    Boolean command; /* TW_KEY: with the Command key (and no menu item) */
+    Point where;
 } TWEvent;
 
 /* Initialises the Toolbox and the menus. `about` is printed in the first

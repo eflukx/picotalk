@@ -9,6 +9,8 @@ mod hub;
 mod monitor;
 mod ping;
 mod serve;
+mod teletekst;
+mod teletekst_client;
 
 use std::io::BufRead;
 use std::process::ExitCode;
@@ -19,10 +21,12 @@ use appletalk::{Config, Role};
 
 fn usage() -> String {
     format!(
-        "usage: lftest serve [options]     echo server and chat hub (NAME:LFEcho, NAME:RChat);
+        "usage: lftest serve [options]     echo server, chat hub and Teletekst
+                                  (NAME:LFEcho, NAME:RChat, NAME:Teletekst);
                                   lines typed here go to the chat
        lftest ping [options]      find an echo server and run the ping and bulk tests
        lftest chat [options]      join a chat hub from this PC
+       lftest teletekst [options] browse Teletekst from this PC, as a Mac does
        lftest monitor [--iface IP]
                                   print every LToUDP frame on the network, decoded
 
@@ -31,6 +35,7 @@ In the chat (serve, chat): /who lists who is connected, /quit stops.
 options:
   --name NAME     server name / chat nickname (default: host name)
   -v              log every request (serve)
+  --teletekst HOST  ssh server for Teletekst (serve; default teletekst.nl)
 {OPTIONS_HELP}"
     )
 }
@@ -40,16 +45,20 @@ pub struct Options {
     /// NBP object name of the services, and the chat nickname; Mac Roman.
     pub name: Vec<u8>,
     pub verbose: bool,
+    /// Where `serve` gets Teletekst from, over ssh.
+    pub teletekst_host: String,
 }
 
 fn parse_args(role: Role, args: &[String]) -> Result<Options, String> {
     let mut name = hostname();
-    let mut o = Options { cfg: Config::new(role), name: Vec::new(), verbose: false };
+    let mut o =
+        Options { cfg: Config::new(role), name: Vec::new(), verbose: false, teletekst_host: "teletekst.nl".into() };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--name" | "--nick" => name = it.next().ok_or("--name needs a value")?.clone(),
             "-v" => o.verbose = true,
+            "--teletekst" => o.teletekst_host = it.next().ok_or("--teletekst needs a value")?.clone(),
             "-h" | "--help" => return Err(usage()),
             _ if o.cfg.parse_arg(a, &mut it)? => {}
             _ => return Err(format!("unknown option {a}\n\n{}", usage())),
@@ -95,6 +104,8 @@ fn main() -> ExitCode {
         Some("chat") => {
             parse_args(Role::Workstation, rest).and_then(|o| chat_client::run(o).map_err(|e| e.to_string()))
         }
+        Some("teletekst") => parse_args(Role::Workstation, rest)
+            .and_then(|o| teletekst_client::run(o).map_err(|e| e.to_string())),
         Some("monitor") => {
             parse_args(Role::Workstation, rest).and_then(|o| monitor::run(o.cfg.iface).map_err(|e| e.to_string()))
         }

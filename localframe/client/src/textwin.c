@@ -376,6 +376,7 @@ Boolean tw_poll(TWEvent *e)
 
     e->kind = TW_NONE;
     e->win = NULL;
+    e->command = false;
     SystemTask();
     if (!GetNextEvent(everyEvent, &ev))
         return false;
@@ -391,8 +392,26 @@ Boolean tw_poll(TWEvent *e)
             e->win = input_win();
             key(e->win, c == 'p' || c == 'P' ? KEY_UP : KEY_DOWN);
         } else if (ev.modifiers & cmdKey) {
-            if (menu(MenuKey(c)))
+            long choice = MenuKey(c);
+            if (choice == 0 && input_win() == NULL) {
+                /* Not a menu item: the application may want it. */
+                e->kind = TW_KEY;
+                e->key = c;
+                e->command = true;
+            } else if (menu(choice)) {
                 e->kind = TW_QUIT;
+            }
+        } else if (input_win() == NULL) {
+            /* No text window takes typing: hand the key to the application,
+             * with arrow keys as the characters 1C-1F. */
+            unsigned char code = (unsigned char)((ev.message & keyCodeMask) >> 8);
+            Boolean printable = (unsigned char)c >= ' ' && c != 0x7F;
+            if (!printable && (code == ADB_UP || code == PLUS_UP))
+                c = CHAR_UP;
+            else if (!printable && (code == ADB_DOWN || code == PLUS_DOWN))
+                c = CHAR_DOWN;
+            e->kind = TW_KEY;
+            e->key = c;
         } else {
             unsigned char code = (unsigned char)((ev.message & keyCodeMask) >> 8);
             short k = (unsigned char)c;
@@ -434,6 +453,15 @@ Boolean tw_poll(TWEvent *e)
                     e->win = t;
                     e->button = c;
                 }
+            } else {
+                GrafPtr old;
+                GetPort(&old);
+                SetPort(w);
+                e->where = ev.where;
+                GlobalToLocal(&e->where);
+                SetPort(old);
+                e->kind = TW_CLICK;
+                e->window = w;
             }
             break;
         }
@@ -451,6 +479,9 @@ Boolean tw_poll(TWEvent *e)
             draw_all(t);
             EndUpdate(t->win);
             SetPort(old);
+        } else {
+            e->kind = TW_UPDATE;
+            e->window = (WindowPtr)ev.message;
         }
         break;
     }

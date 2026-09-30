@@ -10,15 +10,18 @@ comes first: a small AppleTalk stack for the PC, and a test program with a
 PC side and a Mac side, to check each link of the chain before any pixels
 move:
 
-* **`lftest serve`** on the PC offers two services on one AppleTalk node: an
-  echo service and a chat hub.
+* **`lftest serve`** on the PC offers three services on one AppleTalk node:
+  an echo service, a chat hub, and NOS Teletekst (bridged from
+  `ssh teletekst.nl`).
 * **LFTest** on the Mac has two windows that run at the same time: *Echo
   Test*, with buttons for the ping and bulk tests, and *Chat*.
+* **Teletekst** on the Mac shows Teletekst pages, block graphics included.
 
 | Test | What it proves |
 |---|---|
 | Echo: ping and bulk | NBP lookup, ATP requests, 8-packet responses, round-trip time, throughput |
 | Chat | long polling with asynchronous requests, which the remote desktop needs; running it during a bulk test shows how the two share the link |
+| Teletekst | a screen kept on the server, of which the Mac receives only the rows that changed: the remote desktop's model in miniature |
 
 New to AppleTalk? Read [docs/appletalk-primer.md](docs/appletalk-primer.md)
 first. It explains AppleTalk versus LocalTalk, the protocols used here, and
@@ -33,7 +36,7 @@ localframe/
 ├── server/               PC side, Rust (Cargo workspace)
 │   ├── appletalk/        library: LLAP addressing, DDP, NBP, ATP, LToUDP
 │   └── lftest/           `lftest`: the test server (serve), PC clients
-│                         (ping, chat) and a frame monitor
+│                         (ping, chat, teletekst) and a frame monitor
 └── client/               Mac side, C, built with Retro68
     ├── build.sh          build with Docker or a local Retro68
     ├── CMakeLists.txt
@@ -42,7 +45,8 @@ localframe/
         ├── textwin.[ch]    text windows with buttons and an input line
         ├── echo.[ch]       the Echo Test window
         ├── chat.[ch]       the Chat window
-        └── lftest.c        LFTest: sets up both windows, runs the event loop
+        ├── lftest.c        LFTest: sets up both windows, runs the event loop
+        └── teletekst.c     Teletekst
 ```
 
 ## Status
@@ -51,7 +55,8 @@ localframe/
 |---|---|
 | `appletalk` crate, `lftest` | 29 unit tests pass; `serve`, `ping` and `chat` tested against each other over LToUDP on one host: 10/10 pings, 92 KB bulk at 17.9 KB/s paced, chat both ways |
 | Mac, in Snow (Mac Plus) with `lftest` on the same Windows PC | the earlier single-purpose version (ATPing) worked: 10/10 pings at about 70 ms, bulk 4.3 KB/s with 0 bad packets. The bulk rate is lower than expected and still being investigated |
-| LFTest (both windows) | compiles for the 68000 (about 70 KB); **not yet run** |
+| LFTest (both windows) | runs in Snow: echo tests and chat at the same time |
+| Teletekst | the service tested with `lftest teletekst` (pages, colour keys); the Mac app compiles, **not yet run** |
 | Snow on one PC, `lftest` on another over Wi-Fi | not working yet: Windows sent Snow's multicast out of the wrong network adapter (see [Networking notes](#networking-notes)); still being checked |
 | Through a picotalk bridge to a real Mac | not yet tried |
 | Remote desktop | design only |
@@ -172,14 +177,14 @@ work too.
 
 ### What you get
 
-`build/` holds:
+`build/` holds, for each of LFTest and Teletekst:
 
 | File | Use |
 |---|---|
-| `LFTest.dsk` | an 800K HFS disk image with the application on it: mount it in an emulator, or write it to a floppy |
-| `LFTest.bin` | MacBinary: the application with its resource fork, packed into one file. A plain copy (for example through a BlueSCSI's Toolbox share) arrives as a document the Finder cannot open; unpack it on the Mac with BinUnpk or StuffIt Expander first |
-| `LFTest.APPL` | the application with its resource fork in `.rsrc/`, for Basilisk-style shared folders |
-| `LFTest.code.bin` | an intermediate build file (the code before Rez adds the other resources); ignore it |
+| `NAME.dsk` | an 800K HFS disk image with the application on it: mount it in an emulator, or write it to a floppy |
+| `NAME.bin` | MacBinary: the application with its resource fork, packed into one file. A plain copy (for example through a BlueSCSI's Toolbox share) arrives as a document the Finder cannot open; unpack it on the Mac with BinUnpk or StuffIt Expander first |
+| `NAME.APPL` | the application with its resource fork in `.rsrc/`, for Basilisk-style shared folders |
+| `NAME.code.bin` | an intermediate build file (the code before Rez adds the other resources); ignore it |
 
 ## Setting up an emulator (stage 2)
 
@@ -257,7 +262,7 @@ packets through the bridge, try 20000.
 
 ## Using lftest
 
-`lftest` is the PC side: one program with four subcommands. Run it with
+`lftest` is the PC side: one program with five subcommands. Run it with
 `cargo run --release -p lftest -- <subcommand>` from `localframe/server`, or
 as `target/release/lftest <subcommand>`.
 
@@ -268,8 +273,8 @@ lftest serve                  # NAME is the host name
 lftest serve --name lab -v    # log every lookup and request
 ```
 
-It registers `NAME:LFEcho` (socket 250) and `NAME:RChat` (socket 251) on one
-node, and answers both. The terminal is part of the chat: type a line and
+It registers `NAME:LFEcho` (socket 250), `NAME:RChat` (socket 251) and
+`NAME:Teletekst` (socket 252) on one node, and answers all three. The terminal is part of the chat: type a line and
 press Enter to send it as NAME. `/who` lists who is connected, and `/quit`
 stops the server. Without a terminal (stdin closed) it keeps serving.
 
@@ -308,7 +313,29 @@ left.
 Mac text uses the Mac Roman character set. `lftest` converts between it and
 UTF-8; characters Mac Roman lacks become `?`.
 
-### `lftest ping` and `lftest chat`: PC clients
+### Teletekst on the Mac
+
+The **Teletekst** app finds the server by itself and shows page 100. Type a
+page number, or click one on the page. The four coloured keys (red, green,
+yellow, blue) jump to the pages named in the bottom row of the page: press
+⌘1–⌘4 (or Shift-1–4), or click that row, one quarter per key. Other keys
+go to the service as typed; `?` shows its help.
+
+Behind it, `lftest serve` runs `ssh teletekst.nl` in a 40×26 terminal for
+each Mac (a page is 25 rows; the service adds a status line) and keeps the
+screen in a terminal emulator. The Mac receives only the rows that changed,
+so the clock in the header costs one row a second. Each cell carries its
+two Teletekst colours (of 8); the Mac draws them as dither patterns of 8
+grey levels, ordered by brightness (what is bright on a TV is dark ink on
+the Mac). Block graphics are sent as 2×3 patterns and filled with their
+colour's pattern. Text is solid black or white for contrast, on a solid
+cell where the background is dithered. `ssh` must be
+installed on the PC; no login or key is needed, and `lftest` offers none.
+A session closes a minute after its Mac stops asking.
+
+`--teletekst HOST` points `serve` at another ssh server.
+
+### `lftest ping`, `lftest chat` and `lftest teletekst`: PC clients
 
 The same tests and chat as LFTest, from a PC: stage 1, or a second chat
 participant.
@@ -323,6 +350,7 @@ pings: 10/10 ok
 bulk: 92480 bytes in 5.16 s = 17.9 KB/s, 0 bad packets, 0 failed transactions
 
 $ lftest chat --name tester
+$ lftest teletekst          # shows the page; type 101 and Enter, or !, @, #, $
 ```
 
 ### `lftest monitor`: see the traffic
@@ -382,9 +410,10 @@ slightly.
 |---|---|---|---|
 | Echo | `LFEcho` | 250 | [`server/lftest/src/echo.rs`](server/lftest/src/echo.rs) |
 | Chat hub | `RChat` | 251 | [`server/lftest/src/chat.rs`](server/lftest/src/chat.rs) |
+| Teletekst | `Teletekst` | 252 | [`server/lftest/src/teletekst.rs`](server/lftest/src/teletekst.rs) |
 | Requests from PC clients | – | 254 | – |
 
-Both services use exactly-once ATP transactions. The chat uses the pull
+All services use exactly-once ATP transactions. The chat uses the pull
 model the remote desktop will use: the client always has one request
 outstanding, and the hub holds it (up to 2 s) until there is something to
 send.

@@ -5,8 +5,8 @@
 #   cmake .. -DCMAKE_TOOLCHAIN_FILE=<Retro68-build>/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 #   make
 #
-# The application comes out as LFTest.bin (MacBinary), LFTest.dsk (an 800K
-# disk image holding it) and LFTest.APPL.
+# Each application comes out as NAME.bin (MacBinary), NAME.dsk (an 800K
+# disk image holding it) and NAME.APPL.
 
 cmake_minimum_required(VERSION 3.13)
 # Retro68 links applications with the C++ driver, so CXX must be enabled.
@@ -23,4 +23,12 @@ add_application(LFTest
     src/textwin.c
     src/appletalk.c
     CREATOR "LFts"
+)
+
+# NOS Teletekst via `lftest serve`, which bridges to `ssh teletekst.nl`.
+add_application(Teletekst
+    src/teletekst.c
+    src/textwin.c
+    src/appletalk.c
+    CREATOR "LFtt"
 )
