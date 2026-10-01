@@ -2,7 +2,9 @@
 //!
 //! * `NAME:LFEcho` on socket 250, answered at once (see `echo`);
 //! * `NAME:RChat` on socket 251, a chat hub that holds polls (see `hub`);
-//! * `NAME:Teletekst` on socket 252, NOS Teletekst via ssh (see `teletekst`).
+//! * `NAME:Teletekst` on socket 252, NOS Teletekst via ssh (see `teletekst`);
+//! * `NAME:Tanks` on socket 253, a tank-level dashboard (see `tanks`), only
+//!   when the dashboard's address is in the environment.
 //!
 //! Lines typed on the terminal are posted to the chat as NAME.
 
@@ -14,12 +16,14 @@ use appletalk::{Entity, Event, Node, Role};
 use crate::chat::{self, Message};
 use crate::echo::{self, Echo};
 use crate::hub::Hub;
+use crate::tanks::{self, Tanks};
 use crate::teletekst::{self, Teletekst};
 use crate::{Options, stdin_lines};
 
 pub const ECHO_SOCKET: u8 = 250;
 pub const CHAT_SOCKET: u8 = 251;
 pub const TELETEKST_SOCKET: u8 = 252;
+pub const TANKS_SOCKET: u8 = 253;
 
 pub fn show(m: &Message) {
     if m.nick == b"*" {
@@ -40,6 +44,15 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
     let mut echo = Echo::default();
     let mut hub = Hub::new(o.name.clone());
     let mut tt = Teletekst::new(o.teletekst_host.clone());
+    // The address carries an access token: it comes only from the
+    // environment, and is never printed.
+    let mut tk = match std::env::var(tanks::URL_VAR) {
+        Ok(url) if !url.is_empty() => {
+            node.stack.register(entity(tanks::TYPE), TANKS_SOCKET);
+            Some(Tanks::start(url))
+        }
+        _ => None,
+    };
     let lines = stdin_lines();
     eprintln!("joined LToUDP, acquiring a node address…");
 
@@ -48,14 +61,22 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
         let mut answers = Vec::new();
         for ev in node.step()? {
             match ev {
-                Event::Ready(n) => eprintln!(
-                    "node {n}: serving {} (socket {ECHO_SOCKET}), {} ({CHAT_SOCKET}) and {} ({TELETEKST_SOCKET}, \
-                     via ssh {})\ntype to chat; /who lists who is connected, /quit stops",
-                    entity(echo::TYPE),
-                    entity(chat::TYPE),
-                    entity(teletekst::TYPE),
-                    o.teletekst_host
-                ),
+                Event::Ready(n) => {
+                    eprintln!(
+                        "node {n}: serving {} (socket {ECHO_SOCKET}), {} ({CHAT_SOCKET}) and {} ({TELETEKST_SOCKET}, \
+                         via ssh {})",
+                        entity(echo::TYPE),
+                        entity(chat::TYPE),
+                        entity(teletekst::TYPE),
+                        o.teletekst_host
+                    );
+                    if tk.is_some() {
+                        eprintln!("and {} ({TANKS_SOCKET}), from the dashboard in ${}", entity(tanks::TYPE), tanks::URL_VAR);
+                    } else {
+                        eprintln!("(no Tanks service: ${} is not set)", tanks::URL_VAR);
+                    }
+                    eprintln!("type to chat; /who lists who is connected, /quit stops");
+                }
                 Event::LookedUp { from, pattern } if o.verbose => eprintln!("lookup for {pattern} from {from}"),
                 Event::Request { socket: ECHO_SOCKET, req } => {
                     let response = echo.handle(&req, node.stack.node().unwrap_or(0));
@@ -69,6 +90,14 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
                         );
                     }
                     answers.push((ECHO_SOCKET, req, response));
+                }
+                Event::Request { socket: TANKS_SOCKET, req } => {
+                    if let Some(tk) = tk.as_mut() {
+                        if o.verbose {
+                            eprintln!("tanks: {} cmd {:02x}", req.from, req.data.first().copied().unwrap_or(0));
+                        }
+                        answers.extend(tk.handle(TANKS_SOCKET, req, now));
+                    }
                 }
                 Event::Request { socket: TELETEKST_SOCKET, req } => {
                     if o.verbose {
@@ -90,6 +119,9 @@ pub fn run(mut o: Options) -> std::io::Result<()> {
         let (due, posted) = hub.due(now);
         answers.extend(due);
         answers.extend(tt.due(now));
+        if let Some(tk) = tk.as_mut() {
+            answers.extend(tk.due(now));
+        }
         posted.iter().for_each(show);
         for (socket, req, response) in answers {
             node.stack.respond(socket, &req, response, now);

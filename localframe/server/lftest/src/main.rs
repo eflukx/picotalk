@@ -9,6 +9,8 @@ mod hub;
 mod monitor;
 mod ping;
 mod serve;
+mod tanks;
+mod tanks_client;
 mod teletekst;
 mod teletekst_client;
 
@@ -22,11 +24,14 @@ use appletalk::{Config, Role};
 fn usage() -> String {
     format!(
         "usage: lftest serve [options]     echo server, chat hub and Teletekst
-                                  (NAME:LFEcho, NAME:RChat, NAME:Teletekst);
+                                  (NAME:LFEcho, NAME:RChat, NAME:Teletekst),
+                                  and the tank dashboard (NAME:Tanks) when
+                                  $BLD_URL holds the dashboard's address;
                                   lines typed here go to the chat
        lftest ping [options]      find an echo server and run the ping and bulk tests
        lftest chat [options]      join a chat hub from this PC
        lftest teletekst [options] browse Teletekst from this PC, as a Mac does
+       lftest tanks [options]     show the tank dashboard from this PC, as a Mac does
        lftest monitor [--iface IP]
                                   print every LToUDP frame on the network, decoded
 
@@ -106,6 +111,9 @@ fn main() -> ExitCode {
         }
         Some("teletekst") => parse_args(Role::Workstation, rest)
             .and_then(|o| teletekst_client::run(o).map_err(|e| e.to_string())),
+        Some("tanks") => {
+            parse_args(Role::Workstation, rest).and_then(|o| tanks_client::run(o).map_err(|e| e.to_string()))
+        }
         Some("monitor") => {
             parse_args(Role::Workstation, rest).and_then(|o| monitor::run(o.cfg.iface).map_err(|e| e.to_string()))
         }

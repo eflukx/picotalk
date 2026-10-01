@@ -32,3 +32,11 @@ add_application(Teletekst
     src/appletalk.c
     CREATOR "LFtt"
 )
+
+# A tank-level dashboard via `lftest serve` (with BLD_URL set).
+add_application(Tanks
+    src/tanks.c
+    src/textwin.c
+    src/appletalk.c
+    CREATOR "LFtk"
+)

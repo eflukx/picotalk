@@ -16,6 +16,10 @@ move:
 * **LFTest** on the Mac has two windows that run at the same time: *Echo
   Test*, with buttons for the ping and bulk tests, and *Chat*.
 * **Teletekst** on the Mac shows Teletekst pages, block graphics included.
+* **Tanks** on the Mac shows a tank-level dashboard full screen: three
+  tanks with their levels and totals, and the weather.
+  There is an **Apple IIgs** version too, in 65816 assembly and in colour:
+  [client_iigs/](client_iigs/README.md).
 
 | Test | What it proves |
 |---|---|
@@ -37,16 +41,21 @@ localframe/
 │   ├── appletalk/        library: LLAP addressing, DDP, NBP, ATP, LToUDP
 │   └── lftest/           `lftest`: the test server (serve), PC clients
 │                         (ping, chat, teletekst) and a frame monitor
-└── client/               Mac side, C, built with Retro68
-    ├── build.sh          build with Docker or a local Retro68
-    ├── CMakeLists.txt
-    └── src/
-        ├── appletalk.[ch]  .MPP/.ATP glue: NBP lookup, ATP requests (async)
-        ├── textwin.[ch]    text windows with buttons and an input line
-        ├── echo.[ch]       the Echo Test window
-        ├── chat.[ch]       the Chat window
-        ├── lftest.c        LFTest: sets up both windows, runs the event loop
-        └── teletekst.c     Teletekst
+├── client/               Mac side, C, built with Retro68
+│   ├── build.sh          build with Docker or a local Retro68
+│   ├── CMakeLists.txt
+│   └── src/
+│       ├── appletalk.[ch]  .MPP/.ATP glue: NBP lookup, ATP requests (async)
+│       ├── textwin.[ch]    text windows with buttons and an input line
+│       ├── echo.[ch]       the Echo Test window
+│       ├── chat.[ch]       the Chat window
+│       ├── lftest.c        LFTest: sets up both windows, runs the event loop
+│       ├── teletekst.c     Teletekst
+│       └── tanks.c         Tanks
+└── client_iigs/          Apple IIgs Teletekst, 65816 assembly (Merlin 32)
+    ├── build.sh          assembles, and makes an 800K ProDOS disk image
+    ├── src/teletekst.s   the program; src/font.s is generated
+    └── tools/mkfont.py   the font generator (from font8x8, public domain)
 ```
 
 ## Status
@@ -56,7 +65,9 @@ localframe/
 | `appletalk` crate, `lftest` | 29 unit tests pass; `serve`, `ping` and `chat` tested against each other over LToUDP on one host: 10/10 pings, 92 KB bulk at 17.9 KB/s paced, chat both ways |
 | Mac, in Snow (Mac Plus) with `lftest` on the same Windows PC | the earlier single-purpose version (ATPing) worked: 10/10 pings at about 70 ms, bulk 4.3 KB/s with 0 bad packets. The bulk rate is lower than expected and still being investigated |
 | LFTest (both windows) | runs in Snow: echo tests and chat at the same time |
-| Teletekst | the service tested with `lftest teletekst` (pages, colour keys); the Mac app compiles, **not yet run** |
+| Teletekst | the service tested with `lftest teletekst` (pages, colour keys, arrows); the Mac app runs in Snow |
+| Tanks | the service tested with `lftest tanks` against the live dashboard; the Mac app compiles, **not yet run** |
+| Teletekst for the IIgs | runs in GSplus up to the AppleTalk check (draws, detects, quits cleanly); the network part waits for a real IIgs on picotalk, as no IIgs emulator speaks LToUDP |
 | Snow on one PC, `lftest` on another over Wi-Fi | not working yet: Windows sent Snow's multicast out of the wrong network adapter (see [Networking notes](#networking-notes)); still being checked |
 | Through a picotalk bridge to a real Mac | not yet tried |
 | Remote desktop | design only |
@@ -177,7 +188,7 @@ work too.
 
 ### What you get
 
-`build/` holds, for each of LFTest and Teletekst:
+`build/` holds, for each of LFTest, Teletekst and Tanks:
 
 | File | Use |
 |---|---|
@@ -339,6 +350,42 @@ A session closes a minute after its Mac stops asking.
 
 `--teletekst HOST` points `serve` at another ssh server.
 
+### Teletekst on the Apple IIgs
+
+[client_iigs/](client_iigs/README.md) is the same app for the IIgs, in
+65816 assembly: `./build.sh` there gives `build/Teletekst.po`, an 800K
+ProDOS disk. It shows the page in the eight real Teletekst colours on the
+Super Hi-Res screen and speaks the same protocol, through the IIgs's own
+AppleTalk firmware. Its README covers building, the keys, and what is not
+yet verified on hardware.
+
+### Tanks on the Mac
+
+**Tanks** shows a tank-level dashboard on the whole screen: the iotta logo
+and the weather at the top, then a card per tank with its name, its status
+(Niveau stabiel, or Laden ▲ / Lossen ▼), a glass cylinder filled to its
+level with the percentage on it, and the litres loaded, unloaded and the
+level for today and yesterday. The time of the data is at the bottom left;
+connection problems show at the bottom right. **⌘D** (or **D**) switches
+between dithered shading (a highlighted, rounded cylinder) and flat
+patterns. Esc or ⌘Q quits.
+
+`lftest serve` fetches the data from a web dashboard that serves
+`api/levels` and `api/weather` below its address, every 5 seconds, and
+offers the `Tanks` service only when that address is in the environment
+variable **`BLD_URL`**:
+
+```sh
+export BLD_URL=...        # the dashboard's address; keep it out of scripts in git
+lftest serve
+```
+
+The address contains an access token, so it is not in the code, the docs
+or the logs: `serve` reports only that the service runs "from the
+dashboard in $BLD_URL", and its error messages leave the address out. Times
+are shown in Dutch time, as on the dashboard's own page. `lftest tanks`
+shows the same data in a terminal.
+
 ### `lftest ping`, `lftest chat` and `lftest teletekst`: PC clients
 
 The same tests and chat as LFTest, from a PC: stage 1, or a second chat
@@ -355,6 +402,7 @@ bulk: 92480 bytes in 5.16 s = 17.9 KB/s, 0 bad packets, 0 failed transactions
 
 $ lftest chat --name tester
 $ lftest teletekst          # shows the page; type 101 and Enter, or !, @, #, $
+$ lftest tanks              # prints the tank dashboard each time it changes
 ```
 
 ### `lftest monitor`: see the traffic
@@ -415,6 +463,7 @@ slightly.
 | Echo | `LFEcho` | 250 | [`server/lftest/src/echo.rs`](server/lftest/src/echo.rs) |
 | Chat hub | `RChat` | 251 | [`server/lftest/src/chat.rs`](server/lftest/src/chat.rs) |
 | Teletekst | `Teletekst` | 252 | [`server/lftest/src/teletekst.rs`](server/lftest/src/teletekst.rs) |
+| Tanks (only with `BLD_URL` set) | `Tanks` | 253 | [`server/lftest/src/tanks.rs`](server/lftest/src/tanks.rs) |
 | Requests from PC clients | – | 254 | – |
 
 All services use exactly-once ATP transactions. The chat uses the pull
