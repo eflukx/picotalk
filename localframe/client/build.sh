@@ -4,7 +4,8 @@
 #   ./build.sh                    with the Retro68 Docker image
 #   RETRO68=~/Retro68-build ./build.sh   with a locally built Retro68
 #
-# Output: build/{LFTest,Teletekst,Tanks}.{bin,dsk,APPL}.
+# Output: build/{LFTest,Teletekst,Tanks}.{bin,dsk,APPL}, and build/demos.dsk
+# ("The One Disk") with all three.
 set -e
 cd "$(dirname "$0")"
 mkdir -p build

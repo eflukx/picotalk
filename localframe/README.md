@@ -188,7 +188,18 @@ work too.
 
 ### What you get
 
-`build/` holds, for each of LFTest, Teletekst and Tanks:
+`build/demos.dsk` is **The One Disk**: an 800K HFS disk image named
+"The One Disk" with all three applications on it. Mount it in an emulator
+or write it to a floppy, and everything is there.
+
+Each application has its own Finder icon. `client/tools/mkicons.py` draws
+them and writes `src/*.r`. The Finder shows an application's icon only when
+the file's bundle bit is set, which Retro68 does not do, so the build sets
+it with `tools/setbundle.py` and makes the disk images with
+`tools/mkdisk.sh`. A disk that showed the generic icons before may need its
+desktop rebuilt (hold ⌘⌥ while inserting it).
+
+`build/` also holds, for each of LFTest, Teletekst and Tanks:
 
 | File | Use |
 |---|---|
