@@ -11,7 +11,7 @@ use appletalk::nbp;
 
 pub fn run(iface: Ipv4Addr) -> std::io::Result<()> {
     // Sender ID 0 is never used by a real node, so we see everything.
-    let link = LtoUdp::open(iface, 0)?;
+    let link = LtoUdp::open(iface, 0, false)?;
     let start = Instant::now();
     eprintln!("listening on 239.192.76.84:1954; Ctrl-C to stop");
     loop {

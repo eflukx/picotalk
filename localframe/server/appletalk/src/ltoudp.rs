@@ -2,12 +2,19 @@
 //! to 239.192.76.84:1954, each prefixed with a 4-byte sender ID. This is
 //! what Mini vMac, Snow, AirTalk, TashRouter and the picotalk `ltoudp`
 //! bridge speak.
+//!
+//! With `unicast` on, data frames for a node we have heard from are sent
+//! straight to that node's address instead of to the group. Peers bound to
+//! `0.0.0.0:1954` (Snow, Mini vMac, lftest) receive them all the same, and
+//! on Wi-Fi a unicast frame is acknowledged and retried by the radio where
+//! a multicast one is sent once at the lowest rate.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
 
+use llap::frame::{BROADCAST, is_control};
 use socket2::{Domain, Protocol, Socket, Type};
 
 pub use llap::ltoudp::{GROUP, HEADER_LEN, MAX_DATAGRAM, PORT};
@@ -16,13 +23,47 @@ pub struct LtoUdp {
     socket: UdpSocket,
     sender_id: [u8; 4],
     group: SocketAddrV4,
+    /// `None` sends everything to the group.
+    peers: Option<Peers>,
+}
+
+/// Where each LLAP node's data frames come from, to send it unicast.
+#[derive(Default)]
+struct Peers {
+    by_node: HashMap<u8, SocketAddr>,
+    /// Addresses our own looped-back datagrams arrive from: a peer there
+    /// shares this host's port, and Windows hands a unicast datagram to only
+    /// one of the sockets bound to it.
+    own_ips: HashSet<IpAddr>,
+}
+
+impl Peers {
+    fn learn(&mut self, frame: &[u8], from: SocketAddr) {
+        // Control frames are left out: an ENQ's source is only a candidate.
+        if frame.len() >= 3 && !is_control(frame[2]) && frame[1] != BROADCAST {
+            self.by_node.insert(frame[1], from);
+        }
+    }
+
+    /// The address to send `frame` to, or `None` for the group: broadcasts,
+    /// control frames (address acquisition must reach everyone), unknown
+    /// nodes, and nodes that share an address with another node or with us.
+    fn route(&self, frame: &[u8]) -> Option<SocketAddr> {
+        if frame.len() < 3 || frame[0] == BROADCAST || is_control(frame[2]) {
+            return None;
+        }
+        let addr = *self.by_node.get(&frame[0])?;
+        let shared = self.by_node.iter().any(|(&n, &a)| a == addr && n != frame[0]);
+        (!shared && !self.own_ips.contains(&addr.ip())).then_some(addr)
+    }
 }
 
 impl LtoUdp {
     /// Joins the LToUDP group on the interface with address `iface`
     /// (`0.0.0.0` lets the OS choose). Other programs on this host (an
-    /// emulator, TashRouter) can share the port.
-    pub fn open(iface: Ipv4Addr, sender_id: u32) -> io::Result<Self> {
+    /// emulator, TashRouter) can share the port. `unicast` sends data frames
+    /// for known nodes straight to them (see the module docs).
+    pub fn open(iface: Ipv4Addr, sender_id: u32, unicast: bool) -> io::Result<Self> {
         let group_ip = Ipv4Addr::from(GROUP);
         let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         s.set_reuse_address(true)?;
@@ -36,21 +77,37 @@ impl LtoUdp {
         s.set_multicast_ttl_v4(1)?;
         let socket: UdpSocket = s.into();
         socket.set_read_timeout(Some(Duration::from_millis(2)))?;
-        Ok(Self { socket, sender_id: sender_id.to_be_bytes(), group: SocketAddrV4::new(group_ip, PORT) })
+        Ok(Self {
+            socket,
+            sender_id: sender_id.to_be_bytes(),
+            group: SocketAddrV4::new(group_ip, PORT),
+            peers: unicast.then(Peers::default),
+        })
     }
 
     pub fn send(&self, frame: &[u8]) -> io::Result<()> {
         let mut d = Vec::with_capacity(HEADER_LEN + frame.len());
         d.extend(self.sender_id);
         d.extend(frame);
-        self.socket.send_to(&d, self.group).map(|_| ())
+        let to = self.peers.as_ref().and_then(|p| p.route(frame)).unwrap_or(self.group.into());
+        self.socket.send_to(&d, to).map(|_| ())
     }
 
     /// The next frame from someone else, or `None` after a short timeout.
-    pub fn recv(&self) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.recv_raw()?.and_then(|(d, _)| {
-            (d.len() > HEADER_LEN && d[..HEADER_LEN] != self.sender_id).then(|| d[HEADER_LEN..].to_vec())
-        }))
+    pub fn recv(&mut self) -> io::Result<Option<Vec<u8>>> {
+        let Some((d, from)) = self.recv_raw()? else { return Ok(None) };
+        if d.len() <= HEADER_LEN {
+            return Ok(None);
+        }
+        let own = d[..HEADER_LEN] == self.sender_id;
+        if let Some(p) = &mut self.peers {
+            if own {
+                p.own_ips.insert(from.ip());
+            } else {
+                p.learn(&d[HEADER_LEN..], from);
+            }
+        }
+        Ok((!own).then(|| d[HEADER_LEN..].to_vec()))
     }
 
     /// The next datagram as received, own ones included, with the sender's
@@ -120,5 +177,49 @@ mod tests {
         unpaced.push(vec![1]);
         unpaced.push(vec![2]);
         assert_eq!(unpaced.ready(t0).len(), 2);
+    }
+
+    fn addr(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn peers_route_data_frames_to_known_nodes() {
+        let mut p = Peers::default();
+        let mac = addr("192.168.1.26:1954");
+        p.learn(&[0xFF, 7, 2, 0, 5], mac); // a DDP broadcast from node 7
+        assert_eq!(p.route(&[7, 200, 1, 0, 5]), Some(mac));
+        assert_eq!(p.route(&[8, 200, 1, 0, 5]), None, "unknown node");
+        assert_eq!(p.route(&[0xFF, 200, 1, 0, 5]), None, "broadcast");
+        assert_eq!(p.route(&[7, 7, 0x81]), None, "control frame");
+    }
+
+    #[test]
+    fn peers_ignore_enq_sources() {
+        let mut p = Peers::default();
+        p.learn(&[9, 9, 0x81], addr("10.0.0.2:1954"));
+        assert_eq!(p.route(&[9, 200, 1, 0, 5]), None);
+    }
+
+    #[test]
+    fn peers_skip_shared_and_own_addresses() {
+        let mut p = Peers::default();
+        let host = addr("192.168.1.26:1954");
+        p.learn(&[0xFF, 7, 2, 0, 5], host);
+        p.learn(&[0xFF, 8, 2, 0, 5], host);
+        assert_eq!(p.route(&[7, 200, 1, 0, 5]), None, "two nodes behind one socket");
+
+        let mut p = Peers::default();
+        p.learn(&[0xFF, 7, 2, 0, 5], host);
+        p.own_ips.insert(host.ip());
+        assert_eq!(p.route(&[7, 200, 1, 0, 5]), None, "a peer on our own host");
+    }
+
+    #[test]
+    fn peers_follow_a_node_that_moves() {
+        let mut p = Peers::default();
+        p.learn(&[0xFF, 7, 2, 0, 5], addr("10.0.0.2:1954"));
+        p.learn(&[0xFF, 7, 2, 0, 5], addr("10.0.0.3:1954"));
+        assert_eq!(p.route(&[7, 200, 1, 0, 5]), Some(addr("10.0.0.3:1954")));
     }
 }

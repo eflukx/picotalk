@@ -259,6 +259,10 @@ window to mount it.
 * **Wi-Fi**: multicast between two Wi-Fi clients goes through the access
   point. Client isolation, IGMP snooping without a querier, or
   multicast-to-unicast conversion can drop it even within one subnet.
+  Multicast that does arrive is sent once at the lowest rate, without the
+  radio's acknowledgements and retries, so frames get lost (each loss costs
+  a 2-second ATP retry). `lftest serve --unicast` sends its replies to a
+  Mac unicast instead; the Mac's own frames stay multicast.
 * To see what actually arrives, run `lftest monitor` (below) on each
   machine.
 
@@ -444,6 +448,7 @@ All `lftest` subcommands take these options:
 | `--node N` | from NAME (`serve`), random (clients) | LLAP node ID to try first: 128–254 for `serve`, 1–127 for `ping` and `chat` |
 | `--rate BPS` | 30000 | pace outgoing frames to BPS bytes/s. Not much above LocalTalk's 28800, and not 0 (unpaced): see [Pacing](#pacing) |
 | `--iface IP` | OS choice | address of the interface to use for multicast |
+| `--unicast` | off | send data frames for a node we have heard from straight to its address instead of to the group: much more reliable over Wi-Fi |
 
 ## Pacing
 

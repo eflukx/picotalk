@@ -17,15 +17,17 @@ pub struct Config {
     pub rate: u32,
     /// Interface address for multicast; `0.0.0.0` lets the OS choose.
     pub iface: Ipv4Addr,
+    /// Send data frames for known nodes unicast (see [`LtoUdp`]).
+    pub unicast: bool,
 }
 
 impl Config {
     pub fn new(role: Role) -> Self {
-        Self { role, node: None, rate: DEFAULT_RATE, iface: Ipv4Addr::UNSPECIFIED }
+        Self { role, node: None, rate: DEFAULT_RATE, iface: Ipv4Addr::UNSPECIFIED, unicast: false }
     }
 
     /// Handles the command-line options every tool shares (`--node`,
-    /// `--rate`, `--iface`). Returns `Ok(false)` if `arg` is not one of them.
+    /// `--rate`, `--iface`, `--unicast`). Returns `Ok(false)` if `arg` is not one of them.
     pub fn parse_arg<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a String>) -> Result<bool, String> {
         let mut val = || rest.next().ok_or(format!("{arg} needs a value"));
         let bad = |e: &dyn std::fmt::Display| format!("{arg}: {e}");
@@ -43,6 +45,7 @@ impl Config {
                 }
             }
             "--iface" => self.iface = val()?.parse().map_err(|e| bad(&e))?,
+            "--unicast" => self.unicast = true,
             _ => return Ok(false),
         }
         Ok(true)
@@ -57,7 +60,10 @@ pub const OPTIONS_HELP: &str = "\
                   above LocalTalk's 28800, or 0 (unpaced), gains nothing and
                   risks lost frames
   --iface IP      address of the network interface for LToUDP multicast
-                  (default: chosen by the OS)";
+                  (default: chosen by the OS)
+  --unicast       send frames for a node we have heard from straight to its
+                  address instead of to the multicast group: far more
+                  reliable over Wi-Fi";
 
 /// LocalTalk's raw speed: 230.4 kbit/s. Sending faster gains nothing:
 /// frames queue up (Snow emulates the serial chip at this rate and buffers
@@ -85,7 +91,7 @@ impl Node {
         let seed = seed();
         let now = Instant::now();
         Ok(Self {
-            link: LtoUdp::open(cfg.iface, seed)?,
+            link: LtoUdp::open(cfg.iface, seed, cfg.unicast)?,
             pacer: Pacer::new(cfg.rate, now),
             stack: Stack::new(cfg.role, cfg.node, seed, now),
         })
